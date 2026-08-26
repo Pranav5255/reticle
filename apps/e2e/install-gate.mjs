@@ -13,13 +13,20 @@
 // is slower and cannot block a PR. Conflating the two gives a gate too slow to block and too shallow
 // to trust.
 //
-// Four scaffolds, because `init` has four genuinely different paths into an app. The third matters
-// most for framework reasons: a Pages Router app has no `app/` root layout to patch, so connect has
-// to mount through `pages/_app` — and that is the path that once did nothing at all, silently.
+// Six scaffolds, because `init` has six genuinely different paths into an app. The Pages Router
+// path matters most for framework reasons: a Pages Router app has no `app/` root layout to patch, so
+// connect has to mount through `pages/_app` — and that is the path that once did nothing at all,
+// silently.
 //
-// The fourth is a different axis entirely: the first three are all the same SHAPE — a single-app root
-// with `init` run inside it — and that sameness is what made this gate blind to four init defects one
-// user hit in eight minutes. `monorepo-subdir` is the shape those live in.
+// `monorepo-subdir` is a different axis entirely: the other single-app roots with `init` run inside
+// the app are the same SHAPE, and that sameness is what made this gate blind to four init defects
+// one user hit in eight minutes. `monorepo-subdir` is the shape those live in.
+//
+// Astro is the only remaining gated stack that renders its own HTML, so the Vite plugin's
+// index.html injection never fires. Connect is a layout <script> and the token is inlined by
+// astro.config — `patchAstroConfig` + `patchAstroLayout` + `pickAstroHost`. The integration suite
+// already drives a pre-instrumented fixture; this scaffold is the one that proves `init` can apply
+// that wiring from scratch.
 //
 //   pnpm gate:install                 # all scaffolds
 //   node apps/e2e/install-gate.mjs --only next-pages-router [--keep]
@@ -301,6 +308,15 @@ const SCAFFOLDS = [
       ],
     ],
     dev: (port) => ['npm', ['run', 'dev', '--', '-p', String(port)]],
+  },
+  {
+    id: 'astro',
+    what: 'Astro — own-HTML render, no Vite-plugin injection (config + layout patch)',
+    create: [
+      'npm',
+      ['create', 'astro@latest', 'app', '--yes', '--', '--template', 'basics', '--no-install', '--no-git'],
+    ],
+    dev: (port) => ['npm', ['run', 'dev', '--', '--port', String(port)]],
   },
   {
     id: 'monorepo-subdir',

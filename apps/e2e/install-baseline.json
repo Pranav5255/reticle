@@ -38,5 +38,12 @@
     "✓ Reticle config → .reticle.json",
     "✓ Vite plugin → vite.config.js",
     "✓ Capabilities + store → src/reticle-dev.ts"
+  ],
+  "astro": [
+    "– MCP server (global) → global (claude user scope)",
+    "✓ Install dependencies → package.json",
+    "✓ Reticle config → .reticle.json",
+    "✓ Astro config (token + build target) → astro.config.mjs",
+    "✓ Connect snippet (Astro) → src/layouts/Layout.astro"
   ]
 }
