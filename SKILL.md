@@ -125,6 +125,7 @@ This is the step the funnel dies on. The daemon runs, the MCP server registers, 
 - **Vite + React**: `reticle()` is in the `plugins` array of `vite.config.*`.
 - **Next.js**: `withReticle` wraps the export in `next.config.*`, `reticle-dev.tsx` exists, and it is mounted in the root layout or `_app`.
 - **Remix**, **Astro**: wired by `init`, each with an app in this repo that a gate drives.
+- **SvelteKit**, **Nuxt**: `init` wires these too (an auto-written client hook for SvelteKit, a printed recipe for Nuxt). Neither has an app in this repo or a CI gate, so treat a session that never appears as unproven, not necessarily a mistake you made.
 - **Anything else**: nothing is wired. Do it by hand: fetch `https://docs.reticle.sh/frameworks.md`.
 
 Those four are the frameworks with an app and a CI gate behind them. The SDK is framework-agnostic and usually connects elsewhere, but say so honestly rather than reporting a proven install.
