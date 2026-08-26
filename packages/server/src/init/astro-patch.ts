@@ -249,6 +249,7 @@ function astroConnectScript(
   port: number | undefined,
   projectId: string | undefined,
   uiLibrary: UiLibrary,
+  testids: readonly string[] = [],
 ): string {
   // Must match what `frameworkPackages` installed. Astro hosts islands from any framework, so an
   // Astro app whose islands are Vue or Svelte gets the sensor, and a script importing the React
@@ -260,15 +261,21 @@ function astroConnectScript(
       : '';
   const id =
     projectId !== undefined && projectId.length > 0 ? `\n          projectId: '${projectId}',` : '';
+  const ids = testids.map((t) => `'${t}'`).join(', ');
   return `    <script>
       if (import.meta.env.DEV) {
         const token = typeof __RETICLE_TOKEN__ !== 'undefined' ? __RETICLE_TOKEN__ : '';
         const root = typeof __RETICLE_ROOT__ !== 'undefined' ? __RETICLE_ROOT__ : '';
-        const { reticle${sdk.usesInstall ? ', install' : ''} } = await import('${sdk.specifier}');
+        const { reticle${sdk.usesInstall ? ', install' : ''}, registerCapabilities } = await import('${sdk.specifier}');
         ${sdk.usesInstall ? 'install();' : '// The sensor has no install(); that is the React adapter.'}
         reticle.connect({${id}${url}
           ...(token.length > 0 ? { token } : {}),
           ...(root.length > 0 ? { root } : {}),
+        });
+        registerCapabilities({
+          testids: [${ids}],
+          signals: [],
+          stores: [],
         });
       }
     </script>
@@ -280,6 +287,7 @@ export function patchAstroLayout(
   port: number | undefined,
   projectId: string | undefined,
   uiLibrary: UiLibrary = UiLibrary.REACT,
+  testids: readonly string[] = [],
 ): SourcePatch {
   if (source.includes(LAYOUT_MARKER)) return { kind: PatchKind.ALREADY };
   const at = source.lastIndexOf(BODY_CLOSE);
@@ -291,6 +299,6 @@ export function patchAstroLayout(
   }
   return {
     kind: PatchKind.APPLY,
-    code: `${source.slice(0, at)}${astroConnectScript(port, projectId, uiLibrary)}${source.slice(at)}`,
+    code: `${source.slice(0, at)}${astroConnectScript(port, projectId, uiLibrary, testids)}${source.slice(at)}`,
   };
 }

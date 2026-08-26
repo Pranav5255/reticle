@@ -4,6 +4,12 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@reticlehq/server` — an Astro app wired by `init` connected but could never answer a state question.** `snippets.ts` calls `registerCapabilities` for every other framework's generated connect script; Astro's own generator (`astro-patch.ts`) never did, because Astro's script is built separately — it renders its own HTML, so the Vite plugin's injection never fires and the two code paths drifted apart. The session showed up, but `hasCapabilities` stayed `false`, which reads to an agent as "connected, but nothing here is verifiable."
+
+  `patchAstroLayout` now threads the scanned `testids` through to the generated script, which calls `registerCapabilities` the same way `snippets.ts` does. `apps/e2e/install-gate.mjs` gained an `astro` scaffold so `gate:install` proves this from a pristine `npm create astro@latest`, not only from the pre-instrumented fixture in `apps/examples/astro`.
+
 ## [2.12.0] - 2026-08-24
 
 ### Fixed

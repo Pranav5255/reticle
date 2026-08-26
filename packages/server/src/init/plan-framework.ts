@@ -582,6 +582,7 @@ export function astroSteps(input: PlanInput): Step[] {
     input.options.port,
     input.options.projectId,
     input.detection.uiLibrary,
+    input.testids ?? [],
   );
   if (configPatch.kind === PatchKind.MANUAL || layoutPatch.kind === PatchKind.MANUAL) {
     return [
