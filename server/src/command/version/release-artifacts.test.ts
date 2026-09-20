@@ -66,9 +66,10 @@ describe('the Rust crate can actually be published', () => {
   it('glib is still the gtk-rs 0.18 generation (#1009)', () => {
     const lock = readFileSync(join(REPO, 'adapters/realm/tauri/Cargo.lock'), 'utf8');
     const versions = [...lock.matchAll(/^name = "glib"\nversion = "([^"]+)"/gm)].map((m) => m[1]);
-    expect(versions.length, 'Cargo.lock has no glib crate — the tripwire cannot fire').toBeGreaterThan(
-      0,
-    );
+    expect(
+      versions.length,
+      'Cargo.lock has no glib crate — the tripwire cannot fire',
+    ).toBeGreaterThan(0);
     const moved = versions.filter((v) => !/^0\.18\./.test(v ?? ''));
     expect(
       moved,
