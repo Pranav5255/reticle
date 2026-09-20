@@ -6,10 +6,10 @@ import { reticle } from '@reticlehq/vite-plugin';
 // never fires; the STAMPING half is what puts data-reticle-source on the JSX.
 //
 // The pairing token is NOT inlined here. On Astro 7.2+ `vite.define` does not reach the client
-// pipeline (#1008). The page reads the file in frontmatter and puts it on a <meta> a processed
-// <script> queries. The SDK import in that script is STATIC: a bare `await import('@reticlehq/react')`
-// 404s while Vite's dep cache is cold, and a `client:only` island behind `{import.meta.env.DEV && …}`
-// never hydrates in the e2e run.
+// pipeline (#1008): the served page script still contains the literal `__RETICLE_TOKEN__`, so
+// `connect()` omits the token and the bridge refuses the dial. The page reads the file in frontmatter
+// instead and puts it on a <meta> a processed <script> queries, which also means a token written
+// AFTER the dev server started is picked up on the next request rather than needing a restart.
 //
 // `vite.build.target` is bumped to es2022 so Astro doesn't try to down-level the modern
 // @reticlehq/react bundle to its conservative default browser target.
@@ -23,6 +23,8 @@ export default defineConfig({
     build: { target: 'es2022' },
     optimizeDeps: { include: ['@reticlehq/react'] },
     plugins: [reticle({ inject: false })],
-    server: { watch: { ignored: [/(^|[\\/])\.reticle([\\/]|$)/] } },
+    // strictPort so a squatter on 5304 is a hard, named startup error instead of a silent move to the
+    // next free port, which serves the e2e harness someone else's 404 and looks like a broken connect.
+    server: { strictPort: true, watch: { ignored: [/(^|[\\/])\.reticle([\\/]|$)/] } },
   },
 });

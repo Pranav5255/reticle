@@ -10,12 +10,10 @@
  *
  * The token used to be inlined by `vite.define`. On Astro 7.2+ that substitution no longer reaches
  * the client pipeline (#1008), so the identifier stays literal, `connect()` omits `token`, and the
- * bridge refuses with "no pairing token on the page". The channel that does work is the one Astro
- * puts on a `<meta>`: read the file in frontmatter and let a local module query
- * `meta[name="reticle-pairing-token"]`. `is:inline` plus `define:vars` can skip the injection.
- * A bare `await import('@reticlehq/react')` from the page script 404s while Vite's dep cache is
- * cold, so the SDK import lives in `src/components/ReticleDev.ts` and the page only statically
- * imports that file.
+ * bridge refuses with "no pairing token on the page". The channel that does work is a `<meta>`: read
+ * the file in frontmatter and let a local module query `meta[name="reticle-pairing-token"]`. Reading
+ * per request also means a token written after the dev server started needs no restart. The SDK import
+ * lives in `src/components/ReticleDev.ts` so the page only ever statically imports a project module.
  *
  * Both patchers bail to `manual` (the printed recipe) on any shape they do not fully recognise.
  * Half-editing a build config is worse than a documented manual step.
@@ -30,8 +28,7 @@ import { patchViteOwningConfig, type ViteOwningConfig } from './vite-owning-conf
 
 /**
  * Local module `init` writes for Astro. A processed page `<script>` statically imports this file
- * so Vite owns the SDK the same way it owns any other project module. A bare
- * `await import('@reticlehq/react')` from the page script 404s while the dep cache is cold.
+ * so Vite owns the SDK the same way it owns any other project module.
  *
  * `.ts`, not `.tsx`: the install-gate scaffold is `create-astro --template minimal`, which has no
  * React integration. The example app uses the same static import in a processed page `<script>`.

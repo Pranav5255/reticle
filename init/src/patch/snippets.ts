@@ -340,7 +340,7 @@ export function astroManual(
     ? `\n  const url = document.querySelector('meta[name="reticle-pairing-url"]')?.getAttribute('content') ?? '';`
     : '';
   const urlSpread = canDiscover ? `\n    ...(url.length > 0 ? { url } : {}),` : '';
-  return `Astro renders its own HTML, so the connect goes in a local module the page statically imports. Do not put the pairing token through \`vite.define\`: on Astro 7.2+ that substitution never reaches the client, the identifier stays literal, and the bridge refuses the dial. Read the token in frontmatter and put it on a <meta> the module can query. Do not \`await import('@reticlehq/react')\` from a page <script>: that bare dynamic import 404s while Vite's dep cache is cold. Do not use \`is:inline\` plus \`define:vars\` for this: that pair can skip the injection, so the identifier never lands and the dial is refused.
+  return `Astro renders its own HTML, so the connect goes in a local module the page statically imports. Do not put the pairing token through \`vite.define\`: on Astro 7.2+ that substitution never reaches the client, the identifier stays literal, and the bridge refuses the dial. Read the token in frontmatter and put it on a <meta> the module can query. Reading it per request also means a token written after the dev server started is picked up on the next load instead of needing a restart.
 
 1. In astro.config.mjs, raise the build target. The token does NOT belong here:
 

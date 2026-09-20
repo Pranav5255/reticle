@@ -87,7 +87,7 @@ module.exports = withReticle({/* your config */});
 
 Remix uses the Vite plugin with `inject: false`: Remix SSRs its own HTML, so the plugin's connect-injection does not fire, but the stamping half still puts `file:line` on a verdict.
 
-Astro is the same on the plugin (wire it with `inject: false` if you want source pointers on JSX islands) and uses a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and puts it on a `<meta name="reticle-pairing-token">`. Do not use `is:inline` plus `define:vars` for this: that pair can skip the injection. Do not `await import('@reticlehq/react')` from a page `<script>`: that bare dynamic import 404s while Vite's dep cache is cold. Do not put a `client:only` island behind `{import.meta.env.DEV && …}`: the island never hydrates.
+Astro is the same on the plugin (wire it with `inject: false` if you want source pointers on JSX islands) and uses a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and puts it on a `<meta name="reticle-pairing-token">`. Reading it per request also means a token written after the dev server started is picked up on the next load, with no restart.
 
 Use a processed page `<script>` with a static SDK import. Vite owns that module graph from the first transform:
 
