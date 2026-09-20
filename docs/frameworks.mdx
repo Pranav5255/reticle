@@ -87,7 +87,7 @@ module.exports = withReticle({/* your config */});
 
 Remix uses the Vite plugin with `inject: false`: Remix SSRs its own HTML, so the plugin's connect-injection does not fire, but the stamping half still puts `file:line` on a verdict.
 
-Astro is the same on the plugin — wire it with `inject: false` if you want source pointers on JSX islands — and a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and hands it over with `define:vars` on an `is:inline` script; the hoisted module then reads `window.__RETICLE_TOKEN__`. Do not put those `<script>` tags inside a conditional: Astro hoists them statically, and a `{isDev && (<script />)}` never renders.
+Astro is the same on the plugin (wire it with `inject: false` if you want source pointers on JSX islands) and uses a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and puts it on a `<meta name="reticle-pairing-token">` that the processed module queries. Do not use `is:inline` plus `define:vars` for this: that pair can skip the injection. Do not put the `<script>` tag inside a conditional: Astro hoists them statically, and a `{isDev && (<script />)}` never renders.
 
 ```astro
 ---
@@ -100,12 +100,19 @@ const pairingToken = (() => {
   try { return readFileSync(join(dir, 'pairing-token'), 'utf8').trim(); } catch { return ''; }
 })();
 const pairingRoot = import.meta.env.DEV ? process.cwd() : '';
-const isDev = import.meta.env.DEV;
 ---
-<script is:inline define:vars={{ pairingToken, pairingRoot, isDev }}>
-  if (isDev) {
-    window.__RETICLE_TOKEN__ = pairingToken;
-    window.__RETICLE_ROOT__ = pairingRoot;
+<meta name="reticle-pairing-token" content={pairingToken} />
+<meta name="reticle-pairing-root" content={pairingRoot} />
+<script>
+  if (import.meta.env.DEV) {
+    const token = document.querySelector('meta[name="reticle-pairing-token"]')?.getAttribute('content') ?? '';
+    const root = document.querySelector('meta[name="reticle-pairing-root"]')?.getAttribute('content') ?? '';
+    const { reticle, install } = await import('@reticlehq/react');
+    install();
+    reticle.connect({
+      ...(token.length > 0 ? { token } : {}),
+      ...(root.length > 0 ? { root } : {}),
+    });
   }
 </script>
 ```

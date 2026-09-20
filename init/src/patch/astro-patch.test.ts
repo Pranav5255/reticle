@@ -91,7 +91,7 @@ describe('patchAstroLayout', () => {
     expect(patch.kind).toBe(PatchKind.APPLY);
     if (patch.kind !== PatchKind.APPLY) return;
     expect(patch.code).toContain('reticle.connect');
-    expect(patch.code).toContain('define:vars');
+    expect(patch.code).toContain('reticle-pairing-token');
     expect(patch.code).toContain('pairingToken');
     expect(patch.code).toContain('import.meta.env.DEV');
     expect(patch.code.indexOf('reticle.connect')).toBeLessThan(patch.code.indexOf('</body>'));

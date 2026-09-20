@@ -30,7 +30,7 @@ export interface ViteOwningConfig {
    *
    * Nuxt still needs this: its client plugin reads `__RETICLE_TOKEN__` from the define. Astro 7.2+
    * no longer substitutes `define` into the client pipeline (#1008), so Astro sets this false and
-   * hands the token through frontmatter `define:vars` instead.
+   * puts the token on a frontmatter `<meta>` instead.
    */
   readonly defineToken?: boolean;
   /**

@@ -6,7 +6,8 @@ import { reticle } from '@reticlehq/vite-plugin';
 // never fires; the STAMPING half is what puts data-reticle-source on the JSX.
 //
 // The pairing token is NOT inlined here. On Astro 7.2+ `vite.define` does not reach the client
-// pipeline (#1008). The page reads the file in frontmatter and hands it over with `define:vars`.
+// pipeline (#1008). The page reads the file in frontmatter and puts it on a <meta> the
+// processed client script can query.
 //
 // `vite.build.target` is bumped to es2022 so Astro doesn't try to down-level the modern
 // @reticlehq/react bundle to its conservative default browser target.

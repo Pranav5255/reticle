@@ -303,10 +303,9 @@ export function astroManual(
       : '';
   const id =
     projectId !== undefined && projectId.length > 0 ? `\n          projectId: '${projectId}',` : '';
-  // Astro owns its Vite instance, so it has a build-time channel of its own: the same `define` that
-  // already inlines the token can inline the daemon URL, resolved every time the config is read —
-  // that is, on every `astro dev`. The port above is written once at install time and goes stale the
-  // moment the daemon moves; this does not.
+  // Astro owns its Vite instance, so the layout can resolve the daemon URL in frontmatter on every
+  // `astro dev` and put it on a <meta> the client script reads. The port above is written once at
+  // install time and goes stale the moment the daemon moves; this does not.
   //
   // Needs the projectId to know WHICH daemon is ours. Without one there is nothing to match on, and
   // adopting a daemon serving another project would report its state as this app's, so the whole
@@ -336,17 +335,14 @@ export function astroManual(
   const pairingUrl = import.meta.env.DEV ? reticleUrl() : '';
 `
     : '';
-  const urlVars = canDiscover ? ', pairingUrl' : '';
-  const urlAssign = canDiscover
-    ? `\n        if (pairingUrl) window.__RETICLE_URL__ = pairingUrl;`
-    : '';
+  const urlMeta = canDiscover ? `\n  <meta name="reticle-pairing-url" content={pairingUrl} />` : '';
   const urlRead = canDiscover
-    ? `\n        const url = typeof window.__RETICLE_URL__ === 'string' ? window.__RETICLE_URL__ : '';`
+    ? `\n        const url = document.querySelector('meta[name="reticle-pairing-url"]')?.getAttribute('content') ?? '';`
     : '';
   const urlSpread = canDiscover ? `\n          ...(url.length > 0 ? { url } : {}),` : '';
-  return `Astro renders its own HTML, so the connect goes in a page <script>. Do not put the pairing token through \`vite.define\`: on Astro 7.2+ that substitution never reaches the client, the identifier stays literal, and the bridge refuses the dial. Read the token in frontmatter and hand it over with \`define:vars\` on an \`is:inline\` script — the one kind Astro passes through verbatim.
+  return `Astro renders its own HTML, so the connect goes in a page <script>. Do not put the pairing token through \`vite.define\`: on Astro 7.2+ that substitution never reaches the client, the identifier stays literal, and the bridge refuses the dial. Read the token in frontmatter and put it on a <meta> the processed module can query. Do not use \`is:inline\` plus \`define:vars\` for this: that pair can skip the injection, so the identifier never lands and the dial is refused.
 
-1. In astro.config.mjs — raise the build target. The token does NOT belong here:
+1. In astro.config.mjs, raise the build target. The token does NOT belong here:
 
   export default defineConfig({
     vite: {
@@ -367,18 +363,13 @@ ${layoutHost(layoutPath)}
     const dir = process.env['RETICLE_PAIRING_TOKEN_DIR'] || join(homedir(), '.reticle');
     try { return readFileSync(join(dir, 'pairing-token'), 'utf8').trim(); } catch { return ''; }
   })();
-  const pairingRoot = import.meta.env.DEV ? process.cwd() : '';
-  const isDev = import.meta.env.DEV;${urlFrontmatter}  ---
-  <script is:inline define:vars={{ pairingToken, pairingRoot, isDev${urlVars} }}>
-    if (isDev) {
-      window.__RETICLE_TOKEN__ = pairingToken;
-      window.__RETICLE_ROOT__ = pairingRoot;${urlAssign}
-    }
-  </script>
+  const pairingRoot = import.meta.env.DEV ? process.cwd() : '';${urlFrontmatter}  ---
+  <meta name="reticle-pairing-token" content={pairingToken} />
+  <meta name="reticle-pairing-root" content={pairingRoot} />${urlMeta}
   <script>
     if (import.meta.env.DEV) {
-      const token = typeof window.__RETICLE_TOKEN__ === 'string' ? window.__RETICLE_TOKEN__ : '';
-      const root = typeof window.__RETICLE_ROOT__ === 'string' ? window.__RETICLE_ROOT__ : '';${urlRead}
+      const token = document.querySelector('meta[name="reticle-pairing-token"]')?.getAttribute('content') ?? '';
+      const root = document.querySelector('meta[name="reticle-pairing-root"]')?.getAttribute('content') ?? '';${urlRead}
       if (token.length === 0) {
         console.warn('[reticle] no pairing token was available when this page rendered, so the app will connect and be refused — you will see NO SESSION even though the SDK loads and the socket opens. The token is written by the Reticle daemon: start it and reload this page.');
       }
@@ -391,8 +382,8 @@ ${layoutHost(layoutPath)}
     }
   </script>
 
-  The <script> tags must not sit inside a conditional. Astro hoists them statically, so
-  \`{isDev && (<script />)}\` is never hoisted — the module 404s and the inline script never renders.
+  The <script> tag must not sit inside a conditional. Astro hoists them statically, so
+  \`{isDev && (<script />)}\` is never hoisted and the module 404s.
   The dev gate belongs in the value and in the imported module.
 
 3. In src/env.d.ts — declare the window names so \`astro check\` can see them (create-astro's

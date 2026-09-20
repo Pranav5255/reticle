@@ -1,7 +1,7 @@
 /**
  * Pure, conservative patchers for an Astro app: the config gets the raised build target and the
- * watcher ignore, one layout gets the pairing token via frontmatter `define:vars` and the dev-only
- * connect `<script>`.
+ * watcher ignore, one layout gets the pairing token via frontmatter `<meta>` tags and the
+ * dev-only connect `<script>`.
  *
  * Astro was the last gated framework where `init` printed a correct recipe and applied none of it —
  * the only ⚠ left on a supported stack, and the user's first session was two hand-copied snippets
@@ -11,8 +11,8 @@
  * The token used to be inlined by `vite.define`. On Astro 7.2+ that substitution no longer reaches
  * the client pipeline (#1008), so the identifier stays literal, `connect()` omits `token`, and the
  * bridge refuses with "no pairing token on the page". The channel that does work is the one Astro
- * passes through verbatim: read the file in frontmatter and hand it to an `is:inline` script with
- * `define:vars`. The hoisted module script then reads `window.__RETICLE_TOKEN__`.
+ * puts on a `<meta>`: read the file in frontmatter and let the processed module query
+ * `meta[name="reticle-pairing-token"]`. `is:inline` plus `define:vars` can skip the injection.
  *
  * Both patchers bail to `manual` (the printed recipe) on any shape they do not fully recognise.
  * Half-editing a build config is worse than a documented manual step.
@@ -82,7 +82,6 @@ const pairingToken = (() => {
   try { return reticleReadFileSync(reticleJoin(dir, 'pairing-token'), 'utf8').trim(); } catch { return ''; }
 })();
 const pairingRoot = import.meta.env.DEV ? process.cwd() : '';
-const isDev = import.meta.env.DEV;
 `;
 
 /** The scripts that go inside the layout's `<body>`. Must not sit inside a conditional — Astro hoists them statically. */
@@ -99,16 +98,12 @@ function astroConnectScript(
       : '';
   const id =
     projectId !== undefined && projectId.length > 0 ? `\n          projectId: '${projectId}',` : '';
-  return `    <script is:inline define:vars={{ pairingToken, pairingRoot, isDev }}>
-      if (isDev) {
-        window.__RETICLE_TOKEN__ = pairingToken;
-        window.__RETICLE_ROOT__ = pairingRoot;
-      }
-    </script>
+  return `    <meta name="reticle-pairing-token" content={pairingToken} />
+    <meta name="reticle-pairing-root" content={pairingRoot} />
     <script>
       if (import.meta.env.DEV) {
-        const token = typeof window.__RETICLE_TOKEN__ === 'string' ? window.__RETICLE_TOKEN__ : '';
-        const root = typeof window.__RETICLE_ROOT__ === 'string' ? window.__RETICLE_ROOT__ : '';
+        const token = document.querySelector('meta[name="reticle-pairing-token"]')?.getAttribute('content') ?? '';
+        const root = document.querySelector('meta[name="reticle-pairing-root"]')?.getAttribute('content') ?? '';
         if (token.length === 0) {
           console.warn(${JSON.stringify(ASTRO_MISSING_TOKEN_WARNING)});
         }

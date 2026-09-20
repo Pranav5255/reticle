@@ -752,7 +752,7 @@ describe('buildPlan — Astro', () => {
     expect(layout.status).toBe(StepStatus.APPLY);
     expect(layout.write?.path).toBe('src/layouts/Layout.astro');
     expect(layout.write?.content).toContain('reticle.connect');
-    expect(layout.write?.content).toContain('define:vars');
+    expect(layout.write?.content).toContain('reticle-pairing-token');
     // #677: without this, create-astro's `astro check && astro build` fails on undeclared names.
     const env = step(plan, 'Astro env types (window token)');
     expect(env.status).toBe(StepStatus.APPLY);
@@ -779,7 +779,7 @@ describe('buildPlan — Astro', () => {
     expect(s.status).toBe(StepStatus.MANUAL);
     // The three things that are Astro-specific and wrong in the generic advice.
     expect(s.detail).toContain('__RETICLE_TOKEN__');
-    expect(s.detail).toContain('define:vars');
+    expect(s.detail).toContain('reticle-pairing-token');
     expect(s.detail).toContain('es2022');
     expect(s.detail).toContain('<script>');
     // #677: the manual recipe must name env.d.ts too.
