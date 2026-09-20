@@ -37,8 +37,8 @@ export const StepTitle = {
   SVELTEKIT_UNVERIFIED: 'SvelteKit is UNVERIFIED',
   CLIENT_HOOK: 'Reticle client hook',
   CONNECT_SNIPPET_ASTRO: 'Connect snippet (Astro)',
-  ASTRO_CONFIG: 'Astro config (token + build target)',
-  ASTRO_ENV_DTS: 'Astro env types (Vite defines)',
+  ASTRO_CONFIG: 'Astro config (build target)',
+  ASTRO_ENV_DTS: 'Astro env types (window token)',
   CSP: CSP_STEP_TITLE,
   CONNECT_SNIPPET: 'Connect snippet',
 } as const;

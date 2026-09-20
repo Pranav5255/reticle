@@ -150,8 +150,8 @@ export interface PlanInput {
    */
   astroLayout?: { path: string; source: string } | null | undefined;
   /**
-   * Existing `src/env.d.ts` content, when present — where the Vite-define ambient declarations go
-   * so `astro check` can see `__RETICLE_TOKEN__` / `__RETICLE_ROOT__` (#677).
+   * Existing `src/env.d.ts` content, when present — where the window ambient declarations go
+   * so `astro check` can see `__RETICLE_TOKEN__` / `__RETICLE_ROOT__` (#677, #1008).
    */
   astroEnvDts?: string | null | undefined;
   /** Discovered Next config filename (e.g. 'next.config.mjs'), or null. */

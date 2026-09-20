@@ -6,6 +6,8 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ### Fixed
 
+- **`@reticlehq/init` — Astro 7.2+ gets the pairing token through frontmatter, not `vite.define`.** On current Astro, `vite.define` does not reach the client pipeline, so `__RETICLE_TOKEN__` stayed literal, `connect()` omitted `token`, and the bridge refused with "no pairing token on the page". `init` now reads the file in frontmatter and hands it over with `define:vars` on an `is:inline` script. The example moves off the 7.0.3 pin. [#1008](https://github.com/reticlehq/reticle/issues/1008).
+
 - **`@reticlehq/server` — a CRA launcher that prints "already running on port N" is named as a busy port, not as a silent exit.** Setup used to report only "The dev server exited without serving anything" when Create React App (or webpack) found its default port taken and prompted for another. The prompt already named the port; that sentence is now the diagnosis, with `--url` as the escape when the listening process is this app. Leftover half of [#802](https://github.com/reticlehq/reticle/issues/802).
 
 ## [3.1.0] — 2026-09-18

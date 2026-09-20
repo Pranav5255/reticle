@@ -85,7 +85,32 @@ module.exports = withReticle({/* your config */});
 
 ## Remix and Astro
 
-Both run on Vite, so both use the Vite plugin exactly as React does. Astro needs the React integration if you want component identity in `.jsx` islands. Static `.astro` markup gets DOM, network and routing without it.
+Remix uses the Vite plugin with `inject: false`: Remix SSRs its own HTML, so the plugin's connect-injection does not fire, but the stamping half still puts `file:line` on a verdict.
+
+Astro is the same on the plugin — wire it with `inject: false` if you want source pointers on JSX islands — and a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and hands it over with `define:vars` on an `is:inline` script; the hoisted module then reads `window.__RETICLE_TOKEN__`. Do not put those `<script>` tags inside a conditional: Astro hoists them statically, and a `{isDev && (<script />)}` never renders.
+
+```astro
+---
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+const pairingToken = (() => {
+  if (!import.meta.env.DEV) return '';
+  const dir = process.env['RETICLE_PAIRING_TOKEN_DIR'] || join(homedir(), '.reticle');
+  try { return readFileSync(join(dir, 'pairing-token'), 'utf8').trim(); } catch { return ''; }
+})();
+const pairingRoot = import.meta.env.DEV ? process.cwd() : '';
+const isDev = import.meta.env.DEV;
+---
+<script is:inline define:vars={{ pairingToken, pairingRoot, isDev }}>
+  if (isDev) {
+    window.__RETICLE_TOKEN__ = pairingToken;
+    window.__RETICLE_ROOT__ = pairingRoot;
+  }
+</script>
+```
+
+`init` also raises `vite.build.target` to `es2022` (Astro's default down-levels the SDK) and keeps `.reticle/` out of the watcher. Static `.astro` markup still gets DOM, network and routing without the React integration.
 
 ## SvelteKit
 

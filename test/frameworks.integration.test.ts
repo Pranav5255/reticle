@@ -26,10 +26,10 @@ const ROOT = process.cwd();
 const BRIDGE_PORT = 4400;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-// Ensure the pairing token exists BEFORE any dev server boots. The SSR examples (Next/Remix/Astro)
-// read it at config load (Node-side) to inline into their client connect; only the vite plugin reads it
-// lazily per request. Provisioning up front means every example — whatever the test order — sees the same
-// token the per-test bridge enforces. Mirrors the real workflow (daemon started before the dev server).
+// Ensure the pairing token exists BEFORE any page renders. Next/Remix still read it at config load;
+// Astro reads it in frontmatter per request (#1008). The vite plugin reads it lazily per request.
+// Provisioning up front means every example — whatever the test order — sees the same token the
+// per-test bridge enforces.
 beforeAll(() => {
   const dir = process.env['RETICLE_PAIRING_TOKEN_DIR'] || join(homedir(), '.reticle');
   const path = join(dir, 'pairing-token');

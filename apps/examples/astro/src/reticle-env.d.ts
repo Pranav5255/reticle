@@ -1,3 +1,6 @@
-// Injected by astro.config's vite `define` from the daemon's ~/.reticle/pairing-token (a JSON string
-// literal; declared here — not inline — so `define`'s textual replacement can't corrupt the declaration).
-declare const __RETICLE_TOKEN__: string;
+// Written by the page's is:inline define:vars script (not vite.define — that channel
+// does not reach Astro's client pipeline on 7.2+).
+interface Window {
+  __RETICLE_TOKEN__?: string;
+  __RETICLE_ROOT__?: string;
+}

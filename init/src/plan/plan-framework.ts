@@ -759,7 +759,7 @@ export function svelteKitSteps(input: PlanInput): Step[] {
 }
 
 /**
- * Astro: the config define + build target, and the connect script in ONE layout.
+ * Astro: the config build target, and the connect script (with the pairing token) in ONE layout.
  *
  * Astro was the last gated stack left printing a recipe it did not apply. It still falls back to the
  * printed one whenever the choice is not obvious — no config, no single layout, or a shape the
@@ -783,11 +783,12 @@ export function astroSteps(input: PlanInput): Step[] {
       },
     ];
   }
-  // ATOMIC. The connect snippet is useless without the config: the token is inlined by the config,
-  // so a layout patched on its own gives an app that dials the bridge and is refused. Measured on a
-  // real fixture — config ⚠, layout ✓ — which reads as one step done and one caveat when it is
-  // actually a guaranteed non-connection. If either half cannot be applied, BOTH go manual with the
-  // single recipe that does the whole job.
+  // ATOMIC. The connect snippet is useless without the config: without `build.target: 'es2022'`
+  // Astro down-levels the SDK and the dynamic import dies, and without `optimizeDeps.include` the
+  // first load 404s the hashed module. The token itself now lives in the layout frontmatter (#1008),
+  // but a layout patched on its own still cannot connect. Measured on a real fixture — config ⚠,
+  // layout ✓ — which reads as one step done and one caveat when it is actually a guaranteed
+  // non-connection. If either half cannot be applied, BOTH go manual with the single recipe.
   const manualWithLayout = astroManual(input.options.port, input.options.projectId, layout.path);
   const configPatch = patchAstroConfig(config.source);
   const layoutPatch = patchAstroLayout(
@@ -813,7 +814,7 @@ export function astroSteps(input: PlanInput): Step[] {
       StepTitle.ASTRO_CONFIG,
       config.path,
       configPatch,
-      'inline the pairing token and raise build.target to es2022',
+      'raise build.target to es2022 and keep .reticle/ out of the watcher',
       manualWithLayout,
     ),
     patchStep(
@@ -830,7 +831,7 @@ export function astroSteps(input: PlanInput): Step[] {
       StepTitle.ASTRO_ENV_DTS,
       ASTRO_ENV_DTS_PATH,
       envPatch,
-      'declare __RETICLE_TOKEN__ / __RETICLE_ROOT__ for astro check',
+      'declare window.__RETICLE_TOKEN__ / __RETICLE_ROOT__ for astro check',
       manualWithLayout,
     ),
   ];

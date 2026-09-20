@@ -744,15 +744,17 @@ describe('buildPlan — Astro', () => {
         },
       }),
     );
-    const config = step(plan, 'Astro config (token + build target)');
+    const config = step(plan, 'Astro config (build target)');
     expect(config.status).toBe(StepStatus.APPLY);
-    expect(config.write?.content).toContain('__RETICLE_TOKEN__');
+    expect(config.write?.content).toContain('reticle-vite-owning');
+    expect(config.write?.content).not.toContain('__RETICLE_TOKEN__');
     const layout = step(plan, 'Connect snippet (Astro)');
     expect(layout.status).toBe(StepStatus.APPLY);
     expect(layout.write?.path).toBe('src/layouts/Layout.astro');
     expect(layout.write?.content).toContain('reticle.connect');
-    // #677: without this, create-astro's `astro check && astro build` fails on undeclared defines.
-    const env = step(plan, 'Astro env types (Vite defines)');
+    expect(layout.write?.content).toContain('define:vars');
+    // #677: without this, create-astro's `astro check && astro build` fails on undeclared names.
+    const env = step(plan, 'Astro env types (window token)');
     expect(env.status).toBe(StepStatus.APPLY);
     expect(env.write?.path).toBe('src/env.d.ts');
     expect(env.write?.content).toContain('__RETICLE_TOKEN__');
@@ -777,6 +779,7 @@ describe('buildPlan — Astro', () => {
     expect(s.status).toBe(StepStatus.MANUAL);
     // The three things that are Astro-specific and wrong in the generic advice.
     expect(s.detail).toContain('__RETICLE_TOKEN__');
+    expect(s.detail).toContain('define:vars');
     expect(s.detail).toContain('es2022');
     expect(s.detail).toContain('<script>');
     // #677: the manual recipe must name env.d.ts too.
