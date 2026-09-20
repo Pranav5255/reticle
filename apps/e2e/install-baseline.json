@@ -45,6 +45,7 @@
     "✓ Reticle config → .reticle.json",
     "✓ Astro config (build target) → astro.config.mjs",
     "✓ Connect snippet (Astro) → src/pages/index.astro",
+    "✓ Astro ReticleDev module → src/components/ReticleDev.ts",
     "✓ Astro env types (window token) → src/env.d.ts"
   ],
   "sveltekit": [

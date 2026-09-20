@@ -94,7 +94,14 @@ describe('patchAstroLayout', () => {
     expect(patch.code).toContain('connectReticle');
     expect(patch.code).toContain("from '../components/ReticleDev'");
     expect(patch.code).toContain('reticle-pairing-token');
-    expect(patch.code).toContain('pairingToken');
+    // The frontmatter must DECLARE what the meta markup interpolates. Asserting only that
+    // `pairingToken` appears somewhere passes on the markup alone, which is how a page that threw
+    // `ReferenceError: pairingToken is not defined` once shipped past this test.
+    expect(patch.code).toContain('const pairingToken =');
+    expect(patch.code).toContain('const pairingRoot =');
+    expect(patch.code.indexOf('const pairingToken =')).toBeLessThan(
+      patch.code.indexOf('content={pairingToken}'),
+    );
     expect(patch.code).toContain('import.meta.env.DEV');
     expect(patch.code).not.toContain('await import(');
     expect(patch.code.indexOf('connectReticle')).toBeLessThan(patch.code.indexOf('</body>'));

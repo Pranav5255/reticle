@@ -160,8 +160,16 @@ function astroConnectMarkup(moduleSpecifier: string): string {
 `;
 }
 
+/**
+ * Marker for the frontmatter half. It must be a name ONLY the frontmatter writes: this ran against
+ * `pairingToken`, which the meta markup inserted one step earlier already contains, so the guard
+ * always tripped and the token read was never added — leaving every scaffolded page throwing
+ * `ReferenceError: pairingToken is not defined`.
+ */
+const FRONTMATTER_MARKER = 'reticleReadFileSync';
+
 function withFrontmatter(source: string): string | null {
-  if (source.includes('pairingToken')) return source;
+  if (source.includes(FRONTMATTER_MARKER)) return source;
   if (source.startsWith(FRONTMATTER_FENCE)) {
     const closeAt = source.indexOf(`\n${FRONTMATTER_FENCE}`, FRONTMATTER_FENCE.length);
     if (closeAt < 0) return null;
