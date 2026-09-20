@@ -147,9 +147,5 @@ describe('Reticle connects in each React framework', () => {
     () => assertConnects('@reticlehq/example-remix', 5303),
     120_000,
   );
-  it(
-    'Astro + React (dev island)',
-    () => assertConnects('@reticlehq/example-astro', 5304),
-    120_000,
-  );
+  it('Astro + React (dev island)', () => assertConnects('@reticlehq/example-astro', 5304), 120_000);
 });
