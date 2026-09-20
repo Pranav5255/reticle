@@ -153,7 +153,7 @@ export function patchAstroLayout(
   }
   const withScripts = `${source.slice(0, at)}${astroConnectScript(port, projectId, uiLibrary, testids)}${source.slice(at)}`;
   const withFence = withFrontmatter(withScripts);
-  if (withFence === null) {
+  if (null === withFence) {
     return {
       kind: PatchKind.MANUAL,
       reason: "couldn't find a closing frontmatter fence to place the pairing-token read in",
