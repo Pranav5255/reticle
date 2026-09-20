@@ -7,7 +7,7 @@
  *   - Vite + React        → the reticle() vite plugin (auto projectId + connect injection)
  *   - Next.js App Router  → withReticle (source-mapping) + a dev-only client connect
  *   - React Router 7      → a client connect (SSR, no index.html injection)
- *   - Astro + React       → a dev-only React island connect (+ es2022 vite target)
+ *   - Astro + React       → a processed page <script> with a static SDK import (+ es2022 vite target)
  *
  * Heavy (spawns real dev servers + Chromium), so it lives in the integration suite, run serially.
  * Requires the workspace to be built and installed.
@@ -110,6 +110,11 @@ async function assertConnects(pkg: string, port: number): Promise<void> {
         pageErrors.push(`${msg.type()}: ${msg.text()}`);
       }
     });
+    page.on('response', (res) => {
+      if (400 <= res.status()) {
+        pageErrors.push(`http ${String(res.status())}: ${res.url()}`);
+      }
+    });
     // `load` (not networkidle) — dev HMR sockets keep the network busy in some frameworks.
     await page
       .goto(`http://localhost:${port}/`, { waitUntil: 'load', timeout: 30_000 })
@@ -147,5 +152,9 @@ describe('Reticle connects in each React framework', () => {
     () => assertConnects('@reticlehq/example-remix', 5303),
     120_000,
   );
-  it('Astro + React (dev island)', () => assertConnects('@reticlehq/example-astro', 5304), 120_000);
+  it(
+    'Astro + React (page script)',
+    () => assertConnects('@reticlehq/example-astro', 5304),
+    120_000,
+  );
 });

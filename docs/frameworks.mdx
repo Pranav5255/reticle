@@ -87,16 +87,15 @@ module.exports = withReticle({/* your config */});
 
 Remix uses the Vite plugin with `inject: false`: Remix SSRs its own HTML, so the plugin's connect-injection does not fire, but the stamping half still puts `file:line` on a verdict.
 
-Astro is the same on the plugin (wire it with `inject: false` if you want source pointers on JSX islands) and uses a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and puts it on a `<meta name="reticle-pairing-token">`. Do not use `is:inline` plus `define:vars` for this: that pair can skip the injection. Do not `await import('@reticlehq/react')` from a page `<script>`: that bare dynamic import 404s while Vite's dep cache is cold.
+Astro is the same on the plugin (wire it with `inject: false` if you want source pointers on JSX islands) and uses a different channel for the pairing token. `vite.define` does not reach Astro's client pipeline on 7.2+, so the identifier stays literal and the bridge refuses the dial. `init` reads the token in frontmatter and puts it on a `<meta name="reticle-pairing-token">`. Do not use `is:inline` plus `define:vars` for this: that pair can skip the injection. Do not `await import('@reticlehq/react')` from a page `<script>`: that bare dynamic import 404s while Vite's dep cache is cold. Do not put a `client:only` island behind `{import.meta.env.DEV && …}`: the island never hydrates.
 
-If the app already has `@astrojs/react`, mount a dev-only island. Vite owns that entry the same way it owns any other island, so the SDK is a static import:
+Use a processed page `<script>` with a static SDK import. Vite owns that module graph from the first transform:
 
 ```astro
 ---
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import ReticleDev from '../components/ReticleDev.tsx';
 const pairingToken = (() => {
   if (!import.meta.env.DEV) return '';
   const dir = process.env['RETICLE_PAIRING_TOKEN_DIR'] || join(homedir(), '.reticle');
@@ -106,10 +105,21 @@ const pairingRoot = import.meta.env.DEV ? process.cwd() : '';
 ---
 <meta name="reticle-pairing-token" content={pairingToken} />
 <meta name="reticle-pairing-root" content={pairingRoot} />
-{import.meta.env.DEV && <ReticleDev client:only="react" />}
+<script>
+  import { reticle, install } from '@reticlehq/react';
+  if (import.meta.env.DEV) {
+    const token = document.querySelector('meta[name="reticle-pairing-token"]')?.getAttribute('content') ?? '';
+    const root = document.querySelector('meta[name="reticle-pairing-root"]')?.getAttribute('content') ?? '';
+    install();
+    reticle.connect({
+      ...(0 < token.length ? { token } : {}),
+      ...(0 < root.length ? { root } : {}),
+    });
+  }
+</script>
 ```
 
-`init` writes the same `<meta>` tags and a local `src/components/ReticleDev.ts` that a processed `<script>` statically imports, so a minimal Astro app (no React integration) still connects. It also raises `vite.build.target` to `es2022` (Astro's default down-levels the SDK) and keeps `.reticle/` out of the watcher. Static `.astro` markup still gets DOM, network and routing without the React integration.
+The `<script>` tag must not sit inside a conditional. Astro hoists them statically, so `{isDev && (<script />)}` is never hoisted. `init` writes the same `<meta>` tags and a local `src/components/ReticleDev.ts` that the script statically imports. It also raises `vite.build.target` to `es2022` (Astro's default down-levels the SDK), declares the SDK in `optimizeDeps.include`, and keeps `.reticle/` out of the watcher. Static `.astro` markup still gets DOM, network and routing without the React integration.
 
 ## SvelteKit
 

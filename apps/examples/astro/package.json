@@ -3,7 +3,7 @@
   "private": true,
   "version": "3.1.0",
   "type": "module",
-  "description": "Minimal Astro app with a React island — verifies Reticle via a dev-only React island.",
+  "description": "Minimal Astro app with a React island — verifies Reticle via a processed page script.",
   "scripts": {
     "dev": "astro dev --port 5304"
   },

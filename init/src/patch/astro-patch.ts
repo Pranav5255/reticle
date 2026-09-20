@@ -34,8 +34,7 @@ import { patchViteOwningConfig, type ViteOwningConfig } from './vite-owning-conf
  * `await import('@reticlehq/react')` from the page script 404s while the dep cache is cold.
  *
  * `.ts`, not `.tsx`: the install-gate scaffold is `create-astro --template minimal`, which has no
- * React integration. A `client:only="react"` island would not compile there. The example app, which
- * already has `@astrojs/react`, uses a React island instead.
+ * React integration. The example app uses the same static import in a processed page `<script>`.
  */
 export const ASTRO_RETICLE_DEV_PATH = 'src/components/ReticleDev.ts';
 
