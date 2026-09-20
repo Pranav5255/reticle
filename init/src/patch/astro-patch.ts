@@ -107,7 +107,19 @@ function astroConnectScript(
         if (token.length === 0) {
           console.warn(${JSON.stringify(ASTRO_MISSING_TOKEN_WARNING)});
         }
-        const { reticle${sdk.usesInstall ? ', install' : ''}, registerCapabilities } = await import('${sdk.specifier}');
+        let sdk;
+        for (let attempt = 0; attempt < 15; attempt++) {
+          try {
+            sdk = await import('${sdk.specifier}');
+            break;
+          } catch {
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+        if (!sdk) {
+          throw new Error('[reticle] ${sdk.specifier} failed to load');
+        }
+        const { reticle${sdk.usesInstall ? ', install' : ''}, registerCapabilities } = sdk;
         ${sdk.usesInstall ? 'install();' : '// The sensor has no install(); that is the React adapter.'}
         reticle.connect({${id}${url}
           ...(token.length > 0 ? { token } : {}),

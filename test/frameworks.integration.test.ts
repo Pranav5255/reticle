@@ -101,6 +101,15 @@ async function assertConnects(pkg: string, port: number): Promise<void> {
   try {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => {
+      pageErrors.push(err.message);
+    });
+    page.on('console', (msg) => {
+      if ('error' === msg.type() || 'warning' === msg.type()) {
+        pageErrors.push(`${msg.type()}: ${msg.text()}`);
+      }
+    });
     // `load` (not networkidle) — dev HMR sockets keep the network busy in some frameworks.
     await page
       .goto(`http://localhost:${port}/`, { waitUntil: 'load', timeout: 30_000 })
@@ -114,7 +123,8 @@ async function assertConnects(pkg: string, port: number): Promise<void> {
       }
       await sleep(200);
     }
-    expect(connected, `${pkg} never connected an Reticle session`).toBe(true);
+    const seen = 0 === pageErrors.length ? '' : ` page errors: ${pageErrors.join(' | ')}`;
+    expect(connected, `${pkg} never connected an Reticle session.${seen}`).toBe(true);
     await browser.close();
   } finally {
     await server.close();
