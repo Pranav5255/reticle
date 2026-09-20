@@ -9,6 +9,8 @@ import { patchViteConfig, VitePatchKind, VITE_IMPORT } from '@/patch/vite-config
 import { patchNextConfig, patchRootLayout, patchPagesApp } from '@/patch/next-patch.js';
 import {
   ASTRO_ENV_DTS_PATH,
+  ASTRO_RETICLE_DEV_PATH,
+  astroReticleDevFile,
   patchAstroConfig,
   patchAstroEnvDts,
   patchAstroLayout,
@@ -791,13 +793,7 @@ export function astroSteps(input: PlanInput): Step[] {
   // non-connection. If either half cannot be applied, BOTH go manual with the single recipe.
   const manualWithLayout = astroManual(input.options.port, input.options.projectId, layout.path);
   const configPatch = patchAstroConfig(config.source);
-  const layoutPatch = patchAstroLayout(
-    layout.source,
-    input.options.port,
-    input.options.projectId,
-    input.detection.uiLibrary,
-    input.testids ?? [],
-  );
+  const layoutPatch = patchAstroLayout(layout.source, layout.path);
   if (configPatch.kind === PatchKind.MANUAL || layoutPatch.kind === PatchKind.MANUAL) {
     return [
       {
@@ -809,6 +805,32 @@ export function astroSteps(input: PlanInput): Step[] {
     ];
   }
   const envPatch = patchAstroEnvDts(input.astroEnvDts ?? null);
+  const existingDev = input.astroReticleDev ?? null;
+  const devAlready =
+    'string' === typeof existingDev && existingDev.includes('reticle.connect');
+  const devStep: Step = devAlready
+    ? {
+        title: StepTitle.ASTRO_RETICLE_DEV,
+        target: ASTRO_RETICLE_DEV_PATH,
+        status: StepStatus.ALREADY,
+        detail: 'file exists, left alone',
+      }
+    : {
+        title: StepTitle.ASTRO_RETICLE_DEV,
+        target: ASTRO_RETICLE_DEV_PATH,
+        status: StepStatus.APPLY,
+        detail: 'write the local connect module (static SDK import, token from <meta>)',
+        write: {
+          path: ASTRO_RETICLE_DEV_PATH,
+          content: astroReticleDevFile(
+            input.options.port,
+            input.options.projectId,
+            input.detection.uiLibrary,
+            input.testids ?? [],
+          ),
+        },
+        dependsOnInstall: true,
+      };
   return [
     patchStep(
       StepTitle.ASTRO_CONFIG,
@@ -821,9 +843,10 @@ export function astroSteps(input: PlanInput): Step[] {
       StepTitle.CONNECT_SNIPPET_ASTRO,
       layout.path,
       layoutPatch,
-      'add the dev-only connect <script> before </body>',
+      'add the pairing-token <meta> and a script that statically imports ReticleDev',
       manualWithLayout,
     ),
+    devStep,
     // Declares the Vite define names so `astro check` (create-astro's default build) can see them
     // (#677). Independent of the two halves above: even an ALREADY config/layout still needs this
     // when the env file was never written.

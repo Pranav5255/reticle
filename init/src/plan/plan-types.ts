@@ -154,6 +154,11 @@ export interface PlanInput {
    * so `astro check` can see `__RETICLE_TOKEN__` / `__RETICLE_ROOT__` (#677, #1008).
    */
   astroEnvDts?: string | null | undefined;
+  /**
+   * Existing `src/components/ReticleDev.ts` content, when present — the local module whose
+   * static SDK import is what actually dials the daemon.
+   */
+  astroReticleDev?: string | null | undefined;
   /** Discovered Next config filename (e.g. 'next.config.mjs'), or null. */
   nextConfigFile: string | null;
   /** Source of that Next config, so the export can be wrapped in withReticle. */

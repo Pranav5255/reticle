@@ -1,31 +1,85 @@
 /**
  * Pure, conservative patchers for an Astro app: the config gets the raised build target and the
- * watcher ignore, one layout gets the pairing token via frontmatter `<meta>` tags and the
- * dev-only connect `<script>`.
+ * watcher ignore, one layout gets the pairing token via frontmatter `<meta>` tags and a processed
+ * `<script>` that statically imports a local connect module.
  *
  * Astro was the last gated framework where `init` printed a correct recipe and applied none of it —
  * the only ⚠ left on a supported stack, and the user's first session was two hand-copied snippets
  * away. Astro is Vite-based but renders its own HTML, so the Vite plugin's injection never fires and
- * there is no entry module to wire: the connect has to live in a page or layout `<script>`.
+ * there is no entry module to wire: the connect has to live in a page or layout.
  *
  * The token used to be inlined by `vite.define`. On Astro 7.2+ that substitution no longer reaches
  * the client pipeline (#1008), so the identifier stays literal, `connect()` omits `token`, and the
  * bridge refuses with "no pairing token on the page". The channel that does work is the one Astro
- * puts on a `<meta>`: read the file in frontmatter and let the processed module query
+ * puts on a `<meta>`: read the file in frontmatter and let a local module query
  * `meta[name="reticle-pairing-token"]`. `is:inline` plus `define:vars` can skip the injection.
+ * A bare `await import('@reticlehq/react')` from the page script 404s while Vite's dep cache is
+ * cold, so the SDK import lives in `src/components/ReticleDev.ts` and the page only statically
+ * imports that file.
  *
  * Both patchers bail to `manual` (the printed recipe) on any shape they do not fully recognise.
  * Half-editing a build config is worse than a documented manual step.
  */
 
+import { posix } from 'node:path';
 import { RETICLE_DEFAULT_PORT, bridgeWsUrl } from '@reticlehq/core';
 import { PatchKind, type SourcePatch } from './patch-kind.js';
 import { UiLibrary } from '@/detect/detect.js';
 import { registerCapabilitiesCall, sdkImport } from './snippets.js';
 import { patchViteOwningConfig, type ViteOwningConfig } from './vite-owning-config.js';
 
-/** Present in a patched layout and in the printed recipe's script. */
+/**
+ * Local module `init` writes for Astro. A processed page `<script>` statically imports this file
+ * so Vite owns the SDK the same way it owns any other project module. A bare
+ * `await import('@reticlehq/react')` from the page script 404s while the dep cache is cold.
+ *
+ * `.ts`, not `.tsx`: the install-gate scaffold is `create-astro --template minimal`, which has no
+ * React integration. A `client:only="react"` island would not compile there. The example app, which
+ * already has `@astrojs/react`, uses a React island instead.
+ */
+export const ASTRO_RETICLE_DEV_PATH = 'src/components/ReticleDev.ts';
+
+/**
+ * Dev-only Astro connect module. Static SDK import, token from frontmatter `<meta>` tags.
+ */
+export function astroReticleDevFile(
+  port: number | undefined,
+  projectId: string | undefined,
+  uiLibrary: UiLibrary = UiLibrary.REACT,
+  testids: readonly string[] = [],
+): string {
+  const sdk = sdkImport(uiLibrary);
+  const extra =
+    port !== undefined && port !== RETICLE_DEFAULT_PORT ? `\n    url: '${bridgeWsUrl(port)}',` : '';
+  const id =
+    projectId !== undefined && projectId.length > 0 ? `\n    projectId: '${projectId}',` : '';
+  return `import { reticle${sdk.usesInstall ? ', install' : ''}, registerCapabilities } from '${sdk.specifier}';
+
+/** Dev-only: connect Reticle. Imported from a processed page script so Vite owns the SDK graph. */
+export default function connectReticle() {
+  const token =
+    document.querySelector('meta[name="reticle-pairing-token"]')?.getAttribute('content') ?? '';
+  const root =
+    document.querySelector('meta[name="reticle-pairing-root"]')?.getAttribute('content') ?? '';
+  const url =
+    document.querySelector('meta[name="reticle-pairing-url"]')?.getAttribute('content') ?? '';
+  if (0 === token.length) {
+    console.warn(${JSON.stringify(ASTRO_MISSING_TOKEN_WARNING)});
+  }
+  ${sdk.usesInstall ? 'install();' : '// The sensor has no install(); that is the React adapter.'}
+  reticle.connect({${id}${extra}
+    ...(0 < token.length ? { token } : {}),
+    ...(0 < root.length ? { root } : {}),
+    ...(0 < url.length ? { url } : {}),
+  });
+${registerCapabilitiesCall(testids, '  ')}
+}
+`;
+}
+
+/** Present in a patched layout (and in an already-wired one that still has the old script). */
 const LAYOUT_MARKER = 'reticle.connect';
+const LAYOUT_MODULE_MARKER = 'connectReticle';
 const BODY_CLOSE = '</body>';
 const FRONTMATTER_FENCE = '---';
 
@@ -84,48 +138,27 @@ const pairingToken = (() => {
 const pairingRoot = import.meta.env.DEV ? process.cwd() : '';
 `;
 
-/** The scripts that go inside the layout's `<body>`. Must not sit inside a conditional — Astro hoists them statically. */
-function astroConnectScript(
-  port: number | undefined,
-  projectId: string | undefined,
-  uiLibrary: UiLibrary,
-  testids: readonly string[],
-): string {
-  const sdk = sdkImport(uiLibrary);
-  const url =
-    port !== undefined && port !== RETICLE_DEFAULT_PORT
-      ? `\n          url: '${bridgeWsUrl(port)}',`
-      : '';
-  const id =
-    projectId !== undefined && projectId.length > 0 ? `\n          projectId: '${projectId}',` : '';
+/**
+ * Import path from a layout/page to the generated connect module, always relative and posix.
+ *
+ * `src/layouts/Layout.astro` and `src/pages/index.astro` both resolve to `../components/ReticleDev`.
+ */
+export function astroReticleDevImport(layoutPath: string): string {
+  const fromDir = posix.dirname(layoutPath.replaceAll('\\', '/'));
+  const to = ASTRO_RETICLE_DEV_PATH.replace(/\.ts$/, '');
+  let rel = posix.relative(fromDir, to);
+  if (!rel.startsWith('.')) rel = `./${rel}`;
+  return rel;
+}
+
+/** Meta tags plus a processed script that statically imports the local connect module. */
+function astroConnectMarkup(moduleSpecifier: string): string {
   return `    <meta name="reticle-pairing-token" content={pairingToken} />
     <meta name="reticle-pairing-root" content={pairingRoot} />
     <script>
+      import connectReticle from '${moduleSpecifier}';
       if (import.meta.env.DEV) {
-        const token = document.querySelector('meta[name="reticle-pairing-token"]')?.getAttribute('content') ?? '';
-        const root = document.querySelector('meta[name="reticle-pairing-root"]')?.getAttribute('content') ?? '';
-        if (token.length === 0) {
-          console.warn(${JSON.stringify(ASTRO_MISSING_TOKEN_WARNING)});
-        }
-        let sdk;
-        for (let attempt = 0; attempt < 15; attempt++) {
-          try {
-            sdk = await import('${sdk.specifier}');
-            break;
-          } catch {
-            await new Promise((r) => setTimeout(r, 200));
-          }
-        }
-        if (!sdk) {
-          throw new Error('[reticle] ${sdk.specifier} failed to load');
-        }
-        const { reticle${sdk.usesInstall ? ', install' : ''}, registerCapabilities } = sdk;
-        ${sdk.usesInstall ? 'install();' : '// The sensor has no install(); that is the React adapter.'}
-        reticle.connect({${id}${url}
-          ...(token.length > 0 ? { token } : {}),
-          ...(root.length > 0 ? { root } : {}),
-        });
-${registerCapabilitiesCall(testids, '        ')}
+        connectReticle();
       }
     </script>
 `;
@@ -145,12 +178,11 @@ function withFrontmatter(source: string): string | null {
 
 export function patchAstroLayout(
   source: string,
-  port: number | undefined,
-  projectId: string | undefined,
-  uiLibrary: UiLibrary = UiLibrary.REACT,
-  testids: readonly string[] = [],
+  layoutPath: string = 'src/layouts/Layout.astro',
 ): SourcePatch {
-  if (source.includes(LAYOUT_MARKER)) return { kind: PatchKind.ALREADY };
+  if (source.includes(LAYOUT_MARKER) || source.includes(LAYOUT_MODULE_MARKER)) {
+    return { kind: PatchKind.ALREADY };
+  }
   const at = source.lastIndexOf(BODY_CLOSE);
   if (at < 0) {
     return {
@@ -158,7 +190,7 @@ export function patchAstroLayout(
       reason: "couldn't find a `</body>` to place the connect script before",
     };
   }
-  const withScripts = `${source.slice(0, at)}${astroConnectScript(port, projectId, uiLibrary, testids)}${source.slice(at)}`;
+  const withScripts = `${source.slice(0, at)}${astroConnectMarkup(astroReticleDevImport(layoutPath))}${source.slice(at)}`;
   const withFence = withFrontmatter(withScripts);
   if (null === withFence) {
     return {

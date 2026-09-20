@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { ReticleDir } from '@reticlehq/core';
 import {
   ASTRO_ENV_DTS_DECLARES,
+  astroReticleDevFile,
   patchAstroConfig,
   patchAstroEnvDts,
   patchAstroLayout,
@@ -86,35 +87,47 @@ export default defineConfig({
 });
 
 describe('patchAstroLayout', () => {
-  it('inserts the dev-only connect script before </body>', () => {
-    const patch = patchAstroLayout(PLAIN_LAYOUT, undefined, undefined);
+  it('inserts the pairing-token meta and a static ReticleDev import before </body>', () => {
+    const patch = patchAstroLayout(PLAIN_LAYOUT, 'src/layouts/Layout.astro');
     expect(patch.kind).toBe(PatchKind.APPLY);
     if (patch.kind !== PatchKind.APPLY) return;
-    expect(patch.code).toContain('reticle.connect');
+    expect(patch.code).toContain('connectReticle');
+    expect(patch.code).toContain("from '../components/ReticleDev'");
     expect(patch.code).toContain('reticle-pairing-token');
     expect(patch.code).toContain('pairingToken');
     expect(patch.code).toContain('import.meta.env.DEV');
-    expect(patch.code.indexOf('reticle.connect')).toBeLessThan(patch.code.indexOf('</body>'));
+    expect(patch.code).not.toContain('await import(');
+    expect(patch.code.indexOf('connectReticle')).toBeLessThan(patch.code.indexOf('</body>'));
     expect(patch.code).toContain('<slot />'); // the user's own markup survives
     expect(patch.code).toContain('const { title } = Astro.props;'); // existing frontmatter survives
   });
 
-  it('carries a non-default port and the projectId into the connect', () => {
-    const patch = patchAstroLayout(PLAIN_LAYOUT, 7331, 'shop-1a2b');
+  it('resolves the module from a page the same way as from a layout', () => {
+    const patch = patchAstroLayout(PLAIN_LAYOUT, 'src/pages/index.astro');
     if (patch.kind !== PatchKind.APPLY) throw new Error('expected a patch');
-    expect(patch.code).toContain('7331');
-    expect(patch.code).toContain('shop-1a2b');
+    expect(patch.code).toContain("from '../components/ReticleDev'");
   });
 
   it('is idempotent — a layout already carrying a connect reports ALREADY', () => {
-    const once = patchAstroLayout(PLAIN_LAYOUT, undefined, undefined);
+    const once = patchAstroLayout(PLAIN_LAYOUT);
     if (once.kind !== PatchKind.APPLY) throw new Error('expected a patch');
-    expect(patchAstroLayout(once.code, undefined, undefined).kind).toBe(PatchKind.ALREADY);
+    expect(patchAstroLayout(once.code).kind).toBe(PatchKind.ALREADY);
   });
 
   it('refuses a layout with no </body> rather than guessing where the script goes', () => {
-    const patch = patchAstroLayout('<slot />\n', undefined, undefined);
+    const patch = patchAstroLayout('<slot />\n');
     expect(patch.kind).toBe(PatchKind.MANUAL);
+  });
+});
+
+describe('astroReticleDevFile', () => {
+  it('carries a non-default port and the projectId into the connect', () => {
+    const file = astroReticleDevFile(7331, 'shop-1a2b');
+    expect(file).toContain('7331');
+    expect(file).toContain('shop-1a2b');
+    expect(file).toContain("from '@reticlehq/react'");
+    expect(file).toContain('reticle.connect');
+    expect(file).toContain('registerCapabilities');
   });
 });
 
