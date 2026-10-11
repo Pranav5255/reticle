@@ -125,6 +125,14 @@
       "added": "2026-10-11",
       "expires": "2026-11-10",
       "note": "Windows install cells run after merge, not in the queue, until green on three consecutive nightlies"
+    },
+    {
+      "id": "e2e",
+      "job_or_test": "e2e",
+      "issue": "#PENDING",
+      "owner": "Pranav5255",
+      "added": "2026-10-11",
+      "expires": "2026-11-10"
     }
   ]
 }
