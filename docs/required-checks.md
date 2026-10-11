@@ -9,9 +9,9 @@ That gap is the difference between a gate and a decoration. A decoration still c
 
 ## How it works here
 
-`ci.yml` ends in a single job called **`gate`**. It waits on every other job in that file and passes only when each one either succeeded or was legitimately skipped. So one required check, `gate`, covers all fifteen jobs in `ci.yml`.
+`ci.yml` ends in a single job called **`gate`**. It waits on every other job in that file and passes only when each one either succeeded or was legitimately skipped. So one required check, `gate`, covers every job listed in its `needs:` in `ci.yml`.
 
-That trick only reaches so far. A job can only wait on jobs in **its own workflow file**, so the five workflows below cannot be folded into `gate`. Each has to be named in branch protection separately, or it blocks nothing.
+That trick only reaches so far. A job can only wait on jobs in **its own workflow file**, so the workflows below cannot be folded into `gate`. Each has to be named in branch protection separately, or it blocks nothing.
 
 `server/src/ci-aggregate-covers-jobs.test.ts` fails if a new workflow starts running on pull requests without being accounted for, and if a job in `ci.yml` is not watched by `gate`.
 

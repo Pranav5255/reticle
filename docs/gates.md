@@ -4,7 +4,7 @@ description: 'I changed some files. Which command do I run before I push?'
 icon: shield-check
 ---
 
-If you changed anything at all, run `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit` (about two minutes). If you also touched the tool surface, install, desktop or Rust, section 1 below names the one extra command your change needs. CI runs everything regardless, so routing costs you a slower red, never a missed one.
+If you changed anything at all, run `pnpm verify` (`format:check`, `lint`, `typecheck`, `test:unit`; about two minutes). If you also touched the tool surface, install, desktop or Rust, section 1 below names the one extra command your change needs. CI is path-routed too, and `gate` counts a skipped job as green, so a gate you skip here may also be skipped in CI.
 
 > **One question this file answers:** _I changed some files. Which command do I run?_
 >
@@ -62,7 +62,7 @@ Find the row that matches what you changed. Run its commands. That is the whole 
 | You changed | Run | Cost |
 | --- | --- | --- |
 | Quick product feedback | `pnpm test:smoke` | recorded in `artifacts/smoke/result.json`; CI timing pending |
-| **Anything at all** | `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit` | ~2 min |
+| **Anything at all** | `pnpm verify` | ~2 min |
 | The tool surface, the wire contract (`core`), or an observer | ↑ **and** `pnpm test:e2e` | +~8 min |
 | `reticle init`, `@reticlehq/vite-plugin`, `@reticlehq/next`, `@reticlehq/babel-plugin`, anything a user runs before their first session | ↑ **and** `pnpm gate:install` | +~15 min |
 | `@reticlehq/electron`, `adapters/realm/tauri`, the IPC observer, desktop capture | ↑ **and** `pnpm test:e2e:desktop` | +~3 min |
@@ -81,7 +81,7 @@ Which means a gate skipped locally can also be skipped in CI, if what you change
 | --- | --- |
 | `verify` (lint, docs lint, types) and `unit-tests` (the unit suite), in parallel; `format-check` is its own job | always |
 | `macos` | always, but only a narrow platform-sensitive slice of the tests |
-| `windows` | the merge queue, main, nightly and on demand; full build, typecheck, unit suite, and daemon runtime checks |
+| `windows` | a pull request that touches TypeScript source, scripts or the lockfile; always in the merge queue, main, nightly and on demand; full build, typecheck, unit suite, and daemon runtime checks |
 | `smoke` | product changes on PRs; always in the queue and on main, nightly, and manual runs |
 | `e2e` | a pull request that touches a package or app the battery boots; always in the merge queue and on main. Split into three parallel shards (`E2E_SHARD=k/3`); the integration suite and the soak run in shard 1 |
 | `rust` (Linux) and `rust-macos` | changes to the standalone Cargo tree or CI workflow; full runs nightly and on demand |
@@ -107,25 +107,25 @@ Each gate exists because the ones above it are blind to something. That blindnes
 | **Build** | `pnpm build` | every package compiles and emits | anything at runtime | `verify` |
 | **Lint** | `pnpm lint` | style rules, plus the dependency-boundary and lossy-transform guards | anything not expressible as a rule | `verify` |
 | **Typecheck** | `pnpm typecheck` | types agree across package boundaries | runtime behaviour | `verify` |
-| **Unit** | `pnpm test:unit` | every package's unit tests, no browser | anything crossing a package boundary at runtime | `verify` |
-| **Repo guards** | `turbo run test:guards` | the `@reticlehq/server` tests that scan OTHER trees (docs, `apps/`, `bench/`, the workflows, the skills), held apart from the unit suite so the wide cache key is 2 seconds rather than 40 | anything inside a package | `verify` (inside `pnpm test:unit`) |
-| **Format** | `pnpm format:check` | Prettier | n/a | `verify` |
+| **Unit** | `pnpm test:unit` | every package's unit tests, no browser | anything crossing a package boundary at runtime | `unit-tests` |
+| **Repo guards** | `turbo run test:guards` | the `@reticlehq/server` tests that scan OTHER trees (docs, `apps/`, `bench/`, the workflows, the skills), held apart from the unit suite so the wide cache key is 2 seconds rather than 40 | anything inside a package | `unit-tests` (inside `pnpm test:unit`) |
+| **Format** | `pnpm format:check` | Prettier | n/a | `format-check` |
 | **JavaScript security audit** | `node scripts/check-js-audit.mjs --self-test && node scripts/check-js-audit.mjs` | critical dependency advisories fail and high ones are printed as warnings without failing; two exact, unpatched development-tool paths are reviewed exceptions documented in [repository settings](https://github.com/reticlehq/reticle/blob/main/.github/REPOSITORY-SETTINGS.md); changed paths, versions, dependency placement, or patch availability fail | vulnerabilities absent from the advisory registry; the reviewed exceptions until patched | `verify` (CI only) |
 | **Integration** | `pnpm test:integration` | real headless Chromium: browser pool, crash isolation, framework adapters, `withReticle` | the MCP surface, the daemon | `e2e` |
 | **Web e2e battery** | `pnpm test:e2e` | **39** specs against 3 booted servers and a real browser (the tool surface, the daemon lifecycle, transport faults, telemetry, trace shape), plus the soak | desktop runtimes; the install | `e2e` |
 | **Desktop battery** | `pnpm test:e2e:desktop` | two real Electron main processes (plain Vite + electron-vite) and a **packaged** Tauri binary, driven headless | web-only paths | `desktop-e2e` |
 | **Conformance** | `pnpm gate:conformance` | drives the published specification's scenarios against this implementation on a real browser, a real Electron shell AND a command-line subject (`run-self`, `run-desktop`, `run-cli`), scoring every verdict through the spec's own `adjudicate` rather than Reticle's kernel | the seven scenarios no fixture can plant, reported ABSENT, plus the four above the claimed profile, reported `not asked`. All three arms are negatively controlled: `gate:conformance:self-test` PLANTS a subject answering `yes` to every claim and requires the gate to refuse it. Both halves are needed and they catch different things -- the coverage floor catches a suite whose plantable scenarios are FALLING, the plant catches a gate that has gone BLIND. The CLI arm briefly had a `--self-test` that only inspected the run it was handed, which on a healthy tree exits non-zero and would redden CI on a working build; it plants at the client seam now, the way the browser arm does. One scenario still passes under the lie and should: `healthy-app-real-claim` genuinely expects a yes. The lie is injected ABOVE the realm, so a supervisor that spawned nothing is not caught by this control alone | ~3 min; runs in CI as the `conformance` job, path-routed on the protocol, the suite, the realm and the two fixture apps |
-| **Install gate** | `pnpm gate:install` | scaffolds **10** pristine apps across 2 OSes (4 cells on a pull request, the 10 Linux cells in the merge queue, all 20 nightly and on `main`), publishes this checkout to a local Verdaccio, lets `init` install itself, boots each app in a real browser, polls for a session that advertised capabilities | install _complexity_; see [`fixtures.md`](./fixtures.md) | `install-gate` |
+| **Install gate** | `pnpm gate:install` | scaffolds **13** pristine apps across 2 OSes (3 Linux and 1 Windows cell on a pull request, the 13 Linux cells in the merge queue, all 26 nightly, on `main` and on demand), publishes this checkout to a local Verdaccio, lets `init` install itself, boots each app in a real browser, polls for a session that advertised capabilities | install _complexity_; see [`fixtures.md`](./fixtures.md) | `install-gate` |
 | **Matrix records** | `pnpm matrix:validate` | every submitted client-compat record is well-formed | whether the client actually works | `matrix-records` |
-| **Windows** | (CI only) | that the code runs at all on the majority platform | e2e; Windows is unit-only | `windows` |
+| **Windows** | (CI only) | that the code runs at all on the majority platform | the web battery; Windows runs the unit suite and two daemon specs | `windows` |
 | **macOS** | (CI only) | the POSIX-but-not-Linux surface (paths, spawn, `lsof`, temp/state dirs) plus a real daemon's lifecycle | everything Linux already covers; it deliberately no longer re-runs the unit tier at a 10x billing multiplier | `macos` |
-| **Rust** | `cargo fmt/clippy/check` | `adapters/realm/tauri` compiles and lints on Linux, macOS, and cross-checks Windows | everything JS | `rust` (always), `rust-macos` (only when Rust changes) |
+| **Rust** | `cargo fmt/clippy/check` | `adapters/realm/tauri` compiles and lints on Linux, macOS, and cross-checks Windows | everything JS | `rust` and `rust-macos`, both when the Cargo tree or the workflow changes, and nightly |
 
 **The single required status check is `gate`.** It passes when every job above either succeeded or was deliberately skipped by path routing, and fails on anything else. Adding a job to `ci.yml` is half the work; adding it to `gate`'s `needs:` list is the other half. A job missing from that list runs, reports, and is structurally incapable of blocking a merge.
 
 ### Guards that self-test
 
-Four checks prove they can still fail before they are trusted. A guard that has never refused anything is not a guard, so each has a negative control that CI runs **first**:
+Five checks prove they can still fail before they are trusted. A guard that has never refused anything is not a guard, so each has a negative control that CI runs **first**:
 
 ```bash
 node scripts/check-boundaries.mjs --self-test        # catches a synthetic bad dependency graph
