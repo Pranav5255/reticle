@@ -1,8 +1,9 @@
 /**
- * MERGE-STANDARD.md's fenced required-check list vs the live GitHub ruleset.
+ * MERGE-STANDARD.md's fenced required-check list vs the live branch rules.
  *
- * The ruleset belongs to the maintainer. This script records the mismatch; it does not
- * apply the ruleset. When `gh` cannot read the ruleset the run is NOT MEASURED, not green.
+ * Uses the public `rules/branches/main` endpoint (no admin token). The ruleset
+ * belongs to the maintainer. `--advisory` prints a mismatch and exits 0 so a
+ * PR is not failed for a settings gap the contributor cannot close.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -22,43 +23,46 @@ export function listedChecks(markdown) {
     .filter((line) => 0 < line.length && !line.startsWith('#'));
 }
 
-function liveChecks(repo) {
-  const listed = spawnSync('gh', ['api', `repos/${repo}/rulesets`], { encoding: 'utf8' });
-  if (0 !== listed.status) {
-    return { ok: false, reason: listed.stderr.trim() || 'gh api rulesets failed', names: [] };
-  }
-  let rulesets;
-  try {
-    rulesets = JSON.parse(listed.stdout);
-  } catch {
-    return { ok: false, reason: 'rulesets JSON parse failed', names: [] };
-  }
-  if (!Array.isArray(rulesets)) return { ok: false, reason: 'rulesets is not an array', names: [] };
+function contextsFromRules(rules) {
   const names = new Set();
-  for (const set of rulesets) {
-    if ('object' !== typeof set || null === set || 'number' !== typeof set.id) continue;
-    const one = spawnSync('gh', ['api', `repos/${repo}/rulesets/${String(set.id)}`], {
-      encoding: 'utf8',
-    });
-    if (0 !== one.status) continue;
-    let body;
-    try {
-      body = JSON.parse(one.stdout);
-    } catch {
-      continue;
-    }
-    const rules = Array.isArray(body.rules) ? body.rules : [];
-    for (const rule of rules) {
-      if (rule.type !== 'required_status_checks') continue;
-      const params = rule.parameters;
-      const checks =
-        params && Array.isArray(params.required_status_checks) ? params.required_status_checks : [];
-      for (const check of checks) {
-        if ('string' === typeof check.context) names.add(check.context);
-      }
+  if (!Array.isArray(rules)) return names;
+  for (const rule of rules) {
+    if (!rule || rule.type !== 'required_status_checks') continue;
+    const checks = rule.parameters?.required_status_checks;
+    if (!Array.isArray(checks)) continue;
+    for (const check of checks) {
+      if ('string' === typeof check.context) names.add(check.context);
     }
   }
-  return { ok: true, reason: '', names: [...names].sort() };
+  return names;
+}
+
+export function liveChecks(repo) {
+  const listed = spawnSync('gh', ['api', `repos/${repo}/rules/branches/main`], {
+    encoding: 'utf8',
+  });
+  if (0 !== listed.status) {
+    return {
+      ok: false,
+      reason: listed.stderr.trim() || 'gh api rules/branches/main failed',
+      names: [],
+    };
+  }
+  let body;
+  try {
+    body = JSON.parse(listed.stdout);
+  } catch {
+    return { ok: false, reason: 'rules JSON parse failed', names: [] };
+  }
+  const rules = Array.isArray(body) ? body : Array.isArray(body.rules) ? body.rules : [];
+  return { ok: true, reason: '', names: [...contextsFromRules(rules)].sort() };
+}
+
+export function drift(listed, liveNames) {
+  return {
+    missing: listed.filter((name) => !liveNames.includes(name)),
+    extra: liveNames.filter((name) => !listed.includes(name)),
+  };
 }
 
 function main(argv) {
@@ -69,7 +73,7 @@ function main(argv) {
   }
   if (argv.includes('--self-test')) {
     const fakeLive = listed.filter((name) => name !== 'analyze (javascript-typescript)');
-    const missing = listed.filter((name) => !fakeLive.includes(name));
+    const { missing } = drift(listed, fakeLive);
     if (!missing.includes('analyze (javascript-typescript)')) {
       console.error('self-test: planted missing analyze was not reported');
       return 1;
@@ -81,21 +85,21 @@ function main(argv) {
     for (const name of listed) console.log(name);
     return 0;
   }
-  const repo = argv.includes('--upstream') ? 'reticlehq/reticle' : 'reticlehq/reticle';
+  const repoIdx = argv.indexOf('--repo');
+  const repo = -1 !== repoIdx && argv[repoIdx + 1] ? argv[repoIdx + 1] : 'reticlehq/reticle';
   const live = liveChecks(repo);
   if (!live.ok) {
-    console.log(`NOT MEASURED: live ruleset unread (${live.reason})`);
+    console.log(`NOT MEASURED: live rules unread (${live.reason})`);
     console.log(`documented: ${listed.join(', ')}`);
-    return 0;
+    return argv.includes('--advisory') ? 0 : 1;
   }
-  const missing = listed.filter((name) => !live.names.includes(name));
-  const extra = live.names.filter((name) => !listed.includes(name));
+  const { missing, extra } = drift(listed, live.names);
   console.log(`live: ${live.names.join(', ') || '(none)'}`);
   console.log(`documented: ${listed.join(', ')}`);
   if (0 < missing.length || 0 < extra.length) {
     if (0 < missing.length) console.error(`missing on live: ${missing.join(', ')}`);
     if (0 < extra.length) console.error(`extra on live: ${extra.join(', ')}`);
-    return 1;
+    return argv.includes('--advisory') ? 0 : 1;
   }
   console.log('required checks match MERGE-STANDARD.md');
   return 0;

@@ -23,7 +23,7 @@ This is a single git repo — a **pnpm + [turbo](https://turbo.build/) monorepo*
 
 ```bash
 pnpm install
-pnpm hooks:install    # pre-commit quality gate, sign-off, and pre-push deny of reticlehq/reticle
+pnpm hooks:install    # symlinks pre-commit.sh — runs format → lint → types → tests on staged files
 ```
 
 The hook is optional and mirrors the fast gate, so it catches locally what CI would catch in ten minutes. It is not installed automatically; a repo that silently writes to your `.git/hooks` on `install` is a repo you cannot trust with a `postinstall`.

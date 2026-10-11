@@ -100,5 +100,7 @@ Tied to MERGE-STANDARD.md. The maintainer applies this. This file does not.
 1. Keep `gate` and `dco`.
 2. Add `analyze (javascript-typescript)` (CodeQL already has `merge_group`).
 3. Require 1 approving review.
-4. Do not add check names `package-quality` or `break-gates`. Those jobs are inside `gate` after this branch.
-5. No further required checks until bench is green on main and Windows install cells that will sit in the queue have three green dispatch runs each.
+4. Require code-owner review.
+5. Require conversation resolution.
+6. Do not add check names `package-quality` or `break-gates`. Those jobs are inside `gate` after this branch.
+7. No further required checks until bench is green on main and Windows install cells that will sit in the queue have three green dispatch runs each.
