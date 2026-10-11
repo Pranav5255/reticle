@@ -22,8 +22,9 @@ permissions:
   contents: read
 
 on:
-  pull_request:
-    paths: ['break/**', 'install/**', '.github/workflows/break-gates.yml']
+  # PR trigger removed: launchers, early-gates and break-matrix now live in ci.yml behind the
+  # `break` route and `gate.needs`. Push to main keeps a second copy so a default-branch-only
+  # path filter still has a home until that workflow is deleted.
   push:
     branches: [main]
     paths: ['break/**', 'install/**', '.github/workflows/break-gates.yml']

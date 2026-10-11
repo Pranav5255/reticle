@@ -13,8 +13,8 @@ on:
   merge_group:
   # The full Windows install matrix, once a day, off the critical path.
   #
-  # A PR and a merge-queue entry run THREE Windows scaffolds, not ten (see `install_matrix` in the
-  # `changes` job). Ten
+  # A PR runs ONE Windows scaffold (`vite-react`); the merge queue runs none (see `install_matrix`
+  # in the `changes` job). Ten
   # windows-latest runners requested at once is more than the pool hands out: measured on run
   # 35297084015, nine cells started immediately and the tenth waited 37 minutes for a machine, then
   # ran for 8 and ended the build. A third of that run's 56-minute wall clock was one cell queuing.
@@ -62,6 +62,7 @@ jobs:
   # broken typecheck fails the expensive job anyway, a few minutes later, while `verify` fails it in
   # parallel regardless. `gate` still requires the full `verify`, so nothing merges without it.
   format-check:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -76,6 +77,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # No build: prettier reads the tree, which is the entire reason this can run ahead of `verify`.
       - run: pnpm format:check
+      # Workflow `needs:` typos and expired flake skips. Cheap, no build, fail-closed.
+      - run: node scripts/ci/workflow-needs-exist.mjs --self-test && node scripts/ci/workflow-needs-exist.mjs
+      - run: node scripts/ci/flaky-expiry.mjs --self-test && node scripts/ci/flaky-expiry.mjs
+      - run: node scripts/ci/root-scripts-in-ci.mjs --self-test && node scripts/ci/root-scripts-in-ci.mjs
       # The changelog rule lives in the `changelog-policy` job, NOT here.
       #
       # It was in both, with two different exemption lists: this copy exempted `release/` and that
@@ -86,6 +91,7 @@ jobs:
       # can disagree with itself; `changelog-policy` is in `gate`'s needs, so nothing is lost.
 
   verify:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     # The only job that was missing a cap, and the only one that has ever hung. On the v2.5.0 merge
     # every test PASSED in 2m17s and then one vitest process never exited; the job sat there for 36
@@ -142,6 +148,7 @@ jobs:
   # The unit suite, in parallel with verify's static checks rather than after them. It was ~4.5 of
   # verify's ~8 minutes, and nothing in it depends on lint or typecheck having run first.
   unit-tests:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -259,6 +266,7 @@ jobs:
   # `pnpm typecheck` is deliberately NOT here. Types are platform-independent; `verify` already
   # answers it and answered it every one of those 10 times.
   macos:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -394,6 +402,7 @@ jobs:
   # none of which an advisory scan needs, and a vulnerable dependency is a different answer from a
   # broken build — worth reading off a separate line.
   rust-audit:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -536,6 +545,7 @@ jobs:
   # flag comes back true and every tier runs. The failure mode of guessing wrong here is a skipped
   # gate on a PR that needed it, so the safe direction is to run too much.
   changes:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -549,6 +559,7 @@ jobs:
       rust: ${{ steps.filter.outputs.rust }}
       e2e: ${{ steps.filter.outputs.e2e }}
       windows: ${{ steps.filter.outputs.windows }}
+      break: ${{ steps.filter.outputs.break }}
       # WHICH scaffolds run on WHICH os, decided per event rather than hard-coded in the matrix.
       install_matrix: ${{ steps.install_matrix.outputs.value }}
     steps:
@@ -560,7 +571,7 @@ jobs:
           # Full qualification must also work when manually dispatched on a feature branch.
           case "${{ github.event_name }}" in
             schedule|workflow_dispatch)
-              for tier in install gateself desktop bench conformance rust e2e windows; do
+              for tier in install gateself desktop bench conformance rust e2e windows break; do
                 echo "$tier=true" >> "$GITHUB_OUTPUT"
               done
               exit 0
@@ -591,7 +602,8 @@ jobs:
             echo "conformance=true" >> "$GITHUB_OUTPUT"
             echo "rust=true" >> "$GITHUB_OUTPUT"
             echo "e2e=true" >> "$GITHUB_OUTPUT"
-            echo "windows=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+            echo "break=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           CHANGED="$(git diff --name-only "$BASE"...HEAD || true)"
           # Still fails OPEN. A base that resolves but produces nothing — a force-push, an empty
@@ -606,101 +618,23 @@ jobs:
             echo "conformance=true" >> "$GITHUB_OUTPUT"
             echo "rust=true" >> "$GITHUB_OUTPUT"
             echo "e2e=true" >> "$GITHUB_OUTPUT"
-            echo "windows=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+            echo "break=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "changed files:"; echo "$CHANGED" | sed 's/^/  /'
-          # What the e2e battery can see: every package it boots or drives, and the apps it starts.
-          # Docs, skills, the Rust crate and fixtures it never boots cannot change its answer.
-          if grep -qE '^(core|engine|server|init|open-verification|spec-runner|adapters|apps/(e2e|api|bench-app|next-smoke|atlas|examples))/|^(package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/ci\.yml)$' <<< "$CHANGED"; then
-            echo "e2e=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "e2e=false" >> "$GITHUB_OUTPUT"
-          fi
-          # Anything a user runs BEFORE their first session, plus the gate itself and the dependency
-          # graph it installs through. Deliberately broad — the cost of a false positive is CI time,
-          # the cost of a false negative is the 0%-connect class shipping again.
-          # `server/src/command/setup/`, `install/` and `break/` are named here. They
-          # are the whole of one-command onboarding — agent registration, pre-approval, the skill
-          # file, the drive — and none of them was on this list, so the release that made `init` an
-          # install could edit every one of them without the install gate running once.
-          #
-          # `adapters/` is spelled out rather than taken whole. Before the directory move this list
-          # named eight paths, and `packages/(vite-plugin|next|babel-plugin|browser|react)` were five
-          # of them; collapsing them to `adapters/` silently added three that were never in scope —
-          # the lint plugin, and the Electron and Tauri realms. This gate scaffolds thirteen WEB apps, so a
-          # dev-only lint rule or a desktop realm cannot change whether one of them installs, and a
-          # Tauri change is Rust that no JS gate compiles at all. The build plugins do the wiring, the
-          # browser realm is what dials, and `init` installs the framework adapter, so those three
-          # stay. This restores the pre-move scope exactly; it is not a new judgement about coverage.
-          if grep -qE '^((init|core)/|server/src/command/(cli|setup)/|adapters/(build/|realm/browser/|framework/)|break/|install/|apps/e2e/(install-gate|install-control|install-packages|smoke-checks|gate-harness|install-baseline)|scripts/pack-install-gate\.mjs|package\.json|pnpm-lock\.yaml|\.github/workflows/ci\.yml)' <<< "$CHANGED"; then
-            echo "install=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "install=false" >> "$GITHUB_OUTPUT"
-          fi
-          # The gate's OWN machinery, which is a narrower question than "could the install break".
-          # The self-test proves the gate can still FAIL. That ability changes when the gate, its
-          # harness, or its recorded baseline changes -- not when somebody edits the browser SDK.
-          if grep -qE '^(apps/e2e/(install-gate|install-control|install-packages|smoke-checks|gate-harness|install-baseline)|scripts/pack-install-gate\.mjs|\.github/workflows/ci\.yml)' <<< "$CHANGED"; then
-            echo "gateself=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "gateself=false" >> "$GITHUB_OUTPUT"
-          fi
-          # The desktop battery boots a real Electron main process and BUILDS a Tauri binary from
-          # Rust — the slowest job in this file — and it ran on every PR including docs-only ones.
-          # Both adapters, both smoke apps, and the three browser/server files that are desktop-only
-          # by definition: the IPC observer, desktop capture, and the setup/doctor pair that shape
-          # and diagnose a desktop install. Anything broader (all of adapters/realm/browser, say) would
-          # route most PRs here and give the routing back for nothing.
-          if grep -qE '^(adapters/realm/electron/|adapters/realm/tauri/|apps/(electron|tauri)-smoke/|adapters/realm/browser/src/observers/ipc\.ts|adapters/realm/browser/src/dom/desktop-capture\.ts|server/src/command/setup/desktop-shape\.ts|init/src/diagnose/desktop-doctor\.ts|\.github/workflows/ci\.yml)' <<< "$CHANGED"; then
-            echo "desktop=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "desktop=false" >> "$GITHUB_OUTPUT"
-          fi
-          # What can change a CONFORMANCE ANSWER, which is a different question from what can
-          # break the desktop battery. The specification and its adjudicator; the suite, its
-          # scenarios and its two subject maps; the realm and the client that binds Reticle to the
-          # SPI; the two functions in core that build a protocol subject; and the two fixture apps
-          # the scenarios are planted into. Narrower than `desktop` in some places and wider in
-          # others, so it gets its own filter rather than borrowing one.
-          if grep -qE '^(open-verification/|conformance/|server/src/portal/realm/|core/src/realm/|core/src/verdict/verification-run\.ts|apps/bench-app/|apps/electron-smoke/|\.github/workflows/ci\.yml)' <<< "$CHANGED"; then
-            echo "conformance=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "conformance=false" >> "$GITHUB_OUTPUT"
-          fi
-          # What can move TOKEN COST, which is a different question from what can break the install.
-          # A tool's description and input schema are charged to the agent on every turn, so an edit
-          # under server/src/tools moves the bill without touching anything the install filter names.
-          # The observation payloads (snapshot, query, the verdict reasons) sit in browser and events.
-          # bench-app is the fixture the numbers are measured against, so changing it moves the
-          # baseline whether or not any product code changed.
-          if grep -qE '^(core/src/|adapters/realm/browser/src/|server/src/(surface/tools|portal/session)/|engine/src/(question|disagreement|window|evidence)/|apps/bench-app/|bench/|\.github/workflows/ci\.yml)' <<< "$CHANGED"; then
-            echo "bench=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "bench=false" >> "$GITHUB_OUTPUT"
-          fi
-          # What the `windows` job can see: the TypeScript packages its build, typecheck, unit
-          # suite and daemon specs exercise, plus the scripts and lockfile they run through.
-          if grep -qE '^(core|engine|server|init|open-verification|spec-runner|conformance|adapters|scripts)/|^apps/e2e/|^(package\.json|pnpm-lock\.yaml|turbo\.json|\.github/workflows/ci\.yml)$' <<< "$CHANGED"; then
-            echo "windows=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "windows=false" >> "$GITHUB_OUTPUT"
-          fi
-          # Both Rust compile jobs run for crate changes. JS/docs cannot change this standalone
-          # Cargo tree; scheduled/manual runs still exercise it through the full-tier fallback.
-          if grep -qE '^(adapters/realm/tauri/|apps/tauri-smoke/src-tauri/|\.github/workflows/ci\.yml)' <<< "$CHANGED"; then
-            echo "rust=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "rust=false" >> "$GITHUB_OUTPUT"
-          fi
+          # Path routing lives in scripts/ci/changes.mjs. Fail-safe is "this path matched no
+          # tier and is not docs-only" (a new adapters/realm/* used to look routed and run
+          # almost nothing). Any file under .github/workflows/ or scripts/ci/ turns every
+          # tier on. Incident: 2026-10 nightlies red on jobs the PR never ran.
+          echo "$CHANGED" | node scripts/ci/changes.mjs --summary
+          echo "$CHANGED" | node scripts/ci/gate-weaken.mjs
       # WHICH install-gate cells to run, as an explicit os/scaffold list.
       #
       # Ubuntu always runs all thirteen: it is the cheap platform, a cell takes 6-7 minutes, and ten of
       # them start at once without queuing. Windows is the opposite on every count -- 8 to 28
-      # minutes for the same work -- so a PULL REQUEST runs three of them and everything else runs
-      # all thirteen. The three are chosen to cover the distinct install shapes rather than to be
-      # representative: `cra` owns its own HTML and is the heaviest tree (the 28-minute cell),
-      # `next-app-router` is the framework whose Windows install shipped broken in 2.3.0, and
-      # `vite-react` is the plain plugin path most projects take.
+      # minutes for the same work -- so a PULL REQUEST runs one Windows cell (`vite-react`) and the
+      # queue runs none. Nightly and dispatch run all thirteen on both OSes. The PR Linux three
+      # cover distinct install shapes: Vite, Next app router, and the monorepo walk-up.
       #
       # This is a SCHEDULE change, not a coverage cut. Every scaffold still runs on Windows daily
       # via the cron above, and `workflow_dispatch` runs the full matrix before merge when a change
@@ -756,6 +690,7 @@ jobs:
   # Seconds, no browser, no servers: it is a schema check plus the validator's own self-check, which
   # runs first because a validator that has never refused anything is not a validator.
   matrix-records:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -837,8 +772,9 @@ jobs:
   install-gate:
     strategy:
       fail-fast: false
-      # The event-specific matrix lives in changes: PRs run four cells, queue entries eleven
-      # Linux cells, and nightly/manual runs all eleven scaffolds on Linux and Windows.
+      # The event-specific matrix lives in changes: PRs run four cells (3 Linux + 1 Windows),
+      # queue entries thirteen Linux cells, and nightly/manual runs all thirteen scaffolds on
+      # Linux and Windows.
       matrix: ${{ fromJSON(needs.changes.outputs.install_matrix) }}
     runs-on: ${{ matrix.os }}
     needs: [install-packages, changes]
@@ -982,21 +918,35 @@ jobs:
       - name: Integration suite (real-Chromium BrowserPool tests)
         if: matrix.shard == '1/3'
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2; do
             echo "::group::integration attempt $attempt"
             if pnpm test:integration; then echo "::endgroup::"; exit 0; fi
             echo "::endgroup::"
+            if ! node scripts/ci/flaky-expiry.mjs --allows integration; then
+              echo "unquarantined red — not retried"; exit 1
+            fi
+            [ "$attempt" -eq 1 ] || { echo "quarantined red after retry"; exit 1; }
+            echo "::warning::integration quarantined; retrying once"
+            mkdir -p "artifacts/attempt-${attempt}"
+            cp /tmp/e2e-*.log "artifacts/attempt-${attempt}/" 2>/dev/null || true
             echo "attempt $attempt failed — cleaning up before retry"
             pkill -f "cli.js mcp" || true; pkill -f "cli.js _daemon" || true; pkill -f chrome-headless || true
             sleep 3
           done
-          echo "integration suite failed after 3 attempts"; exit 1
+          echo "integration suite failed after retry"; exit 1
       - name: Run e2e battery (boots api+demo+next-smoke, drives Reticle headless)
         run: |
           for attempt in 1 2; do
             echo "::group::e2e attempt $attempt"
             if pnpm --filter @reticlehq/e2e --fail-if-no-match run e2e:ci; then echo "::endgroup::"; exit 0; fi
             echo "::endgroup::"
+            if ! node scripts/ci/flaky-expiry.mjs --allows e2e; then
+              echo "unquarantined red — not retried"; exit 1
+            fi
+            [ "$attempt" -eq 1 ] || { echo "quarantined red after retry"; exit 1; }
+            echo "::warning::e2e quarantined; retrying once"
+            mkdir -p "artifacts/attempt-${attempt}"
+            cp /tmp/e2e-*.log "artifacts/attempt-${attempt}/" 2>/dev/null || true
             echo "attempt $attempt failed — cleaning up before retry"
             pkill -f "cli.js mcp" || true; pkill -f "cli.js _daemon" || true; pkill -f chrome-headless || true
             pkill -f "vite" || true; pkill -f "apps/api/server.mjs" || true
@@ -1030,12 +980,14 @@ jobs:
             [ "$waited" -ge 30 ] && echo "::warning::ports still held after 30s:$busy — retrying anyway"
           done
           echo "e2e battery failed after 2 attempts"; exit 1
-      - name: Upload server logs on failure
-        if: failure()
+      - name: Upload server logs (every attempt, including a later green)
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-server-logs-${{ strategy.job-index }}
-          path: /tmp/e2e-*.log
+          path: |
+            /tmp/e2e-*.log
+            artifacts/attempt-*/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -1171,10 +1123,10 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     needs: [format-check, changes]
-    # After merge, not before: on every push to main (path-routed), nightly and on demand. At ~19 min
-    # it set the wall clock of every code PR and then of the merge queue, and a token regression is
-    # not something a contributor can act on. A regression is still caught minutes after it lands and
-    # always before a release; a red main run names the commit.
+    # After merge: `bench:full` on push to main (path-routed), nightly and on demand.
+    # The merge queue does NOT run bench until VE is green on three consecutive fork
+    # dispatch runs for one SHA. A red bench on main would eject every queued entry
+    # that touches bench paths.
     if: >-
       (github.event_name == 'push' && needs.changes.outputs.bench == 'true') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 45
@@ -1274,6 +1226,178 @@ jobs:
           echo "See .changes/README.md. If this IS the release PR, branch from release/."
           exit 1
 
+  # Folded out of break-gates.yml so `init/**` and setup changes run the refusals, and so `gate`
+  # can need them. The standalone workflow keeps push-to-main only.
+  launchers:
+    needs: [changes]
+    if: needs.changes.outputs.break == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: install.sh parses
+        shell: bash
+        run: sh -n install/install.sh
+      - name: install.ps1 parses
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errs = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "$env:GITHUB_WORKSPACE\install\install.ps1", [ref]$null, [ref]$errs)
+          if ($errs) { $errs | ForEach-Object { Write-Host $_.Message }; throw 'install.ps1 does not parse' }
+      - name: the launchers are pure ASCII
+        shell: bash
+        run: |
+          for f in install/install.sh install/install.ps1; do
+            if LC_ALL=C grep -qP '[^\x00-\x7F]' "$f"; then
+              echo "$f contains non-ASCII bytes:"; LC_ALL=C grep -nP '[^\x00-\x7F]' "$f"; exit 1
+            fi
+          done
+
+  early-gates:
+    needs: [format-check, changes]
+    if: needs.changes.outputs.break == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 22 }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build --filter=@reticlehq/server...
+      - name: no package.json is refused, by path
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/empty" && cd "$RUNNER_TEMP/empty"
+          out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
+          echo "$out" | grep -qi "no package.json" || { echo "$out"; exit 1; }
+      - name: malformed package.json names the file, not a stack trace
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bad" && cd "$RUNNER_TEMP/bad"
+          printf '{ "name": "x", }' > package.json
+          out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
+          echo "$out" | grep -q "not valid JSON" || { echo "$out"; exit 1; }
+          echo "$out" | grep -qE "^\s+at .+:[0-9]+:[0-9]+" && { echo "leaked a stack trace"; exit 1; }
+          exit 0
+      - name: a project with no dev script stops rather than inventing one
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/nodev" && cd "$RUNNER_TEMP/nodev"
+          printf '{"name":"x","version":"1.0.0","scripts":{"build":"true"}}' > package.json
+          out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
+          echo "$out" | grep -q "rather than invent" || { echo "$out"; exit 1; }
+
+  break-matrix:
+    needs: [format-check, changes]
+    if: needs.changes.outputs.break == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 22 }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build --filter=@reticlehq/server...
+      - run: node break/break-matrix.mjs
+        timeout-minutes: 25
+
+  package-quality:
+    runs-on: ubuntu-latest
+    needs: [format-check]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: publint (every published package)
+        run: |
+          set -e
+          dirs=$(git ls-files '*/package.json' | grep -v '^apps/' | xargs -n1 dirname)
+          checked=0
+          for dir in $dirs; do
+            name=$(node -p "try{require('./$dir/package.json').private?'':require('./$dir/package.json').name}catch(e){''}")
+            [ -z "$name" ] && continue
+            checked=$((checked+1))
+            echo "::group::publint $name"
+            (cd "$dir" && npx --yes publint@0.3.21 --strict)
+            echo "::endgroup::"
+          done
+          echo "publint checked $checked package(s)"
+          [ "$checked" -ge 10 ] || { echo "::error::publint checked $checked packages; expected at least 10"; exit 1; }
+      - name: Are the types wrong (every published package)
+        run: |
+          set -e
+          dirs=$(git ls-files '*/package.json' | grep -v '^apps/' | xargs -n1 dirname)
+          checked=0
+          for dir in $dirs; do
+            name=$(node -p "try{require('./$dir/package.json').private?'':require('./$dir/package.json').name}catch(e){''}")
+            [ -z "$name" ] && continue
+            checked=$((checked+1))
+            echo "::group::attw $name"
+            (cd "$dir" && npx --yes @arethetypeswrong/cli@0.18.5 --pack --ignore-rules cjs-resolves-to-esm no-resolution)
+            echo "::endgroup::"
+          done
+          echo "attw checked $checked package(s)"
+          [ "$checked" -ge 10 ] || { echo "::error::attw checked $checked packages; expected at least 10"; exit 1; }
+      - name: Published package size budgets
+        run: node scripts/check-pack-size.mjs
+
+  # Schedule only. A red nightly used to sit unnoticed. Not in `gate`: it cannot fail a PR.
+  nightly-watch:
+    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'reticlehq/reticle')) && always()
+    runs-on: ubuntu-latest
+    needs: [gate]
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Required-checks drift (advisory)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/required-checks-drift.mjs --repo ${{ github.repository }} --advisory
+      - name: Open or update the nightly-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE: ${{ needs.gate.result }}
+        run: |
+          case "$GATE" in
+            success|skipped) echo "gate $GATE"; extra="" ;;
+            *) extra="gate=$GATE" ;;
+          esac
+          failed_jobs=$(gh run view "${{ github.run_id }}" --json jobs --jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | .name] | join(", ")' || true)
+          [ -z "$extra" ] && [ -z "$failed_jobs" ] && { echo "nightly green"; exit 0; }
+          title='Nightly CI is red'
+          existing=$(gh issue list --search "$title in:title" --state open --json number --jq '.[0].number')
+          body="Scheduled run ${{ github.run_id }} on ${{ github.sha }} reported a failure.
+          gate: $GATE
+          failed jobs: ${failed_jobs:-none listed}
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
   gate:
     runs-on: ubuntu-latest
     # Every job that can fail a PR is listed HERE. A job missing from this list runs, reports, and is
@@ -1310,8 +1434,12 @@ jobs:
         conformance,
         bench,
         multi-agent,
+        launchers,
+        early-gates,
+        break-matrix,
+        package-quality,
       ]
-    if: always()
+    if: always() && (github.event_name != 'schedule' || github.repository == 'reticlehq/reticle')
     timeout-minutes: 5
     steps:
       - name: Every gate either passed or was not needed

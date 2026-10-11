@@ -1,5 +1,7 @@
 # setup — the harness that judges the install
 
+This directory was renamed from `setup/`. The path in the tree is `break/`.
+
 **Nothing in this directory installs Reticle.** Two other places do, and it is worth being precise about which, because this directory spent a release being mistaken for both:
 
 | I want to…                       | Go to                                                   |

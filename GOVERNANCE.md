@@ -23,7 +23,8 @@ There's no committee. Land a few substantial, well-tested PRs, review others' wo
 
 These are the rules a change is held to regardless of who sends it — they're in [CONTRIBUTING.md](./CONTRIBUTING.md) and enforced in CI:
 
-- Tests-first, and the gates (lint, typecheck, unit, and the e2e battery for tool/wire/observer changes) must pass.
+- Tests-first, and the gates (lint, typecheck, unit, and the e2e battery for tool/wire/observer changes) must pass. The full list of what must be green to merge is in [`.github/MERGE-STANDARD.md`](.github/MERGE-STANDARD.md).
+
 - The wire contract lives in `@reticlehq/core` — never inline a wire string in `browser`/`server`.
 - The service boundaries hold: `browser` touches only the DOM, `server` only Node, `react` is optional enrichment core must work without.
 - No false greens. A change that lets the verifier report success on evidence it doesn't have will be rejected — that's the one thing this project exists to prevent.

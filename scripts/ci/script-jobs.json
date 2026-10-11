@@ -1,0 +1,10 @@
+{
+  "gate:conformance": "conformance",
+  "gate:install": "install-gate",
+  "gate:multi": "multi-agent",
+  "test:unit": "unit-tests",
+  "test:smoke": "smoke",
+  "test:e2e": "e2e",
+  "test:e2e:desktop": "desktop-e2e",
+  "test:integration": "e2e"
+}

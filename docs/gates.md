@@ -6,6 +6,8 @@ icon: shield-check
 
 If you changed anything at all, run `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit` (about two minutes). If you also touched the tool surface, install, desktop or Rust, section 1 below names the one extra command your change needs. CI runs everything regardless, so routing costs you a slower red, never a missed one.
 
+> Correction (2026-10-10): CI is path-routed. A skipped expensive job counts as green on `gate`. Qualify on the fork before an upstream PR: [pre-pr-qualification.md](./pre-pr-qualification.md).
+
 > **One question this file answers:** _I changed some files. Which command do I run?_
 >
 > The _why_ behind the gate design (tiers, the merge-gate/release-gate split, what is still unbuilt) lives in [`gate-plan.md`](./gate-plan.md). This file is the routing table.
@@ -13,6 +15,17 @@ If you changed anything at all, run `pnpm format:check && pnpm lint && pnpm type
 ---
 
 ## 0. Last verified
+
+> Stale-date (2026-10-10): the table below is a hand-written sweep, not generated from CI. Treat a row as a claim about the SHA it names. New runs go in the gate ledger process in [pre-pr-qualification.md](./pre-pr-qualification.md).
+
+<!-- last-verified:generated:start -->
+
+| check                                         | last verified | result               | sha     |
+| --------------------------------------------- | ------------- | -------------------- | ------- |
+| `pnpm verify`                                 | 2026-10-11    | green (Phase A tree) | `local` |
+| `scripts/ci/changes.mjs (zz-probe / dco.yml)` | 2026-10-11    | unrouted / all tiers | `local` |
+
+<!-- last-verified:generated:end -->
 
 Every gate below was executed end to end against `main` on **2026-08-12** (macOS, M-series, `v2.6.0`), except the four re-run for the v3.1.0 release review on **2026-09-16** (macOS, M-series, `feat/v3.1.0`): `verify`, `test:e2e`, `gate:install` and `lint:docs`. A green row means somebody watched it go green, not that it is supposed to be green. A row nobody has watched since v2.6.0 is a row making a claim about a different codebase.
 
@@ -108,18 +121,14 @@ Each gate exists because the ones above it are blind to something. That blindnes
 | **Lint** | `pnpm lint` | style rules, plus the dependency-boundary and lossy-transform guards | anything not expressible as a rule | `verify` |
 | **Typecheck** | `pnpm typecheck` | types agree across package boundaries | runtime behaviour | `verify` |
 | **Unit** | `pnpm test:unit` | every package's unit tests, no browser | anything crossing a package boundary at runtime | `verify` |
-| **Repo guards** | `turbo run test:guards` | the `@reticlehq/server` tests that scan OTHER trees (docs, `apps/`, `bench/`, the workflows, the skills), held apart from the unit suite so the wide cache key is 2 seconds rather than 40 | anything inside a package | `verify` (inside `pnpm test:unit`) |
-| **Format** | `pnpm format:check` | Prettier | n/a | `verify` |
-| **JavaScript security audit** | `node scripts/check-js-audit.mjs --self-test && node scripts/check-js-audit.mjs` | critical dependency advisories fail and high ones are printed as warnings without failing; two exact, unpatched development-tool paths are reviewed exceptions documented in [repository settings](https://github.com/reticlehq/reticle/blob/main/.github/REPOSITORY-SETTINGS.md); changed paths, versions, dependency placement, or patch availability fail | vulnerabilities absent from the advisory registry; the reviewed exceptions until patched | `verify` (CI only) |
-| **Integration** | `pnpm test:integration` | real headless Chromium: browser pool, crash isolation, framework adapters, `withReticle` | the MCP surface, the daemon | `e2e` |
-| **Web e2e battery** | `pnpm test:e2e` | **39** specs against 3 booted servers and a real browser (the tool surface, the daemon lifecycle, transport faults, telemetry, trace shape), plus the soak | desktop runtimes; the install | `e2e` |
-| **Desktop battery** | `pnpm test:e2e:desktop` | two real Electron main processes (plain Vite + electron-vite) and a **packaged** Tauri binary, driven headless | web-only paths | `desktop-e2e` |
-| **Conformance** | `pnpm gate:conformance` | drives the published specification's scenarios against this implementation on a real browser, a real Electron shell AND a command-line subject (`run-self`, `run-desktop`, `run-cli`), scoring every verdict through the spec's own `adjudicate` rather than Reticle's kernel | the seven scenarios no fixture can plant, reported ABSENT, plus the four above the claimed profile, reported `not asked`. All three arms are negatively controlled: `gate:conformance:self-test` PLANTS a subject answering `yes` to every claim and requires the gate to refuse it. Both halves are needed and they catch different things -- the coverage floor catches a suite whose plantable scenarios are FALLING, the plant catches a gate that has gone BLIND. The CLI arm briefly had a `--self-test` that only inspected the run it was handed, which on a healthy tree exits non-zero and would redden CI on a working build; it plants at the client seam now, the way the browser arm does. One scenario still passes under the lie and should: `healthy-app-real-claim` genuinely expects a yes. The lie is injected ABOVE the realm, so a supervisor that spawned nothing is not caught by this control alone | ~3 min; runs in CI as the `conformance` job, path-routed on the protocol, the suite, the realm and the two fixture apps |
-| **Install gate** | `pnpm gate:install` | scaffolds **10** pristine apps across 2 OSes (4 cells on a pull request, the 10 Linux cells in the merge queue, all 20 nightly and on `main`), publishes this checkout to a local Verdaccio, lets `init` install itself, boots each app in a real browser, polls for a session that advertised capabilities | install _complexity_; see [`fixtures.md`](./fixtures.md) | `install-gate` |
-| **Matrix records** | `pnpm matrix:validate` | every submitted client-compat record is well-formed | whether the client actually works | `matrix-records` |
-| **Windows** | (CI only) | that the code runs at all on the majority platform | e2e; Windows is unit-only | `windows` |
-| **macOS** | (CI only) | the POSIX-but-not-Linux surface (paths, spawn, `lsof`, temp/state dirs) plus a real daemon's lifecycle | everything Linux already covers; it deliberately no longer re-runs the unit tier at a 10x billing multiplier | `macos` |
-| **Rust** | `cargo fmt/clippy/check` | `adapters/realm/tauri` compiles and lints on Linux, macOS, and cross-checks Windows | everything JS | `rust` (always), `rust-macos` (only when Rust changes) |
+
+> Correction (2026-10-10): the CI job names are `unit-tests` and `format-check`, not `verify`. `verify` is the static-check job (lint, docs lint, types, audit). | **Repo guards** | `turbo run test:guards` | the `@reticlehq/server` tests that scan OTHER trees (docs, `apps/`, `bench/`, the workflows, the skills), held apart from the unit suite so the wide cache key is 2 seconds rather than 40 | anything inside a package | `verify` (inside `pnpm test:unit`) | | **Format** | `pnpm format:check` | Prettier | n/a | `verify` | | **JavaScript security audit** | `node scripts/check-js-audit.mjs --self-test && node scripts/check-js-audit.mjs` | critical dependency advisories fail and high ones are printed as warnings without failing; two exact, unpatched development-tool paths are reviewed exceptions documented in [repository settings](https://github.com/reticlehq/reticle/blob/main/.github/REPOSITORY-SETTINGS.md); changed paths, versions, dependency placement, or patch availability fail | vulnerabilities absent from the advisory registry; the reviewed exceptions until patched | `verify` (CI only) | | **Integration** | `pnpm test:integration` | real headless Chromium: browser pool, crash isolation, framework adapters, `withReticle` | the MCP surface, the daemon | `e2e` | | **Web e2e battery** | `pnpm test:e2e` | **39** specs against 3 booted servers and a real browser (the tool surface, the daemon lifecycle, transport faults, telemetry, trace shape), plus the soak | desktop runtimes; the install | `e2e` | | **Desktop battery** | `pnpm test:e2e:desktop` | two real Electron main processes (plain Vite + electron-vite) and a **packaged** Tauri binary, driven headless | web-only paths | `desktop-e2e` | | **Conformance** | `pnpm gate:conformance` | drives the published specification's scenarios against this implementation on a real browser, a real Electron shell AND a command-line subject (`run-self`, `run-desktop`, `run-cli`), scoring every verdict through the spec's own `adjudicate` rather than Reticle's kernel | the seven scenarios no fixture can plant, reported ABSENT, plus the four above the claimed profile, reported `not asked`. All three arms are negatively controlled: `gate:conformance:self-test` PLANTS a subject answering `yes` to every claim and requires the gate to refuse it. Both halves are needed and they catch different things -- the coverage floor catches a suite whose plantable scenarios are FALLING, the plant catches a gate that has gone BLIND. The CLI arm briefly had a `--self-test` that only inspected the run it was handed, which on a healthy tree exits non-zero and would redden CI on a working build; it plants at the client seam now, the way the browser arm does. One scenario still passes under the lie and should: `healthy-app-real-claim` genuinely expects a yes. The lie is injected ABOVE the realm, so a supervisor that spawned nothing is not caught by this control alone | ~3 min; runs in CI as the `conformance` job, path-routed on the protocol, the suite, the realm and the two fixture apps | | **Install gate** | `pnpm gate:install` | scaffolds **10** pristine apps across 2 OSes (4 cells on a pull request, the 10 Linux cells in the merge queue, all 20 nightly and on `main`), publishes this checkout to a local Verdaccio, lets `init` install itself, boots each app in a real browser, polls for a session that advertised capabilities | install _complexity_; see [`fixtures.md`](./fixtures.md) | `install-gate` |
+
+> Correction (2026-10-10): 13 scaffolds. A PR runs 3 Linux + 1 Windows (`vite-react`). The queue runs 13 Linux + 0 Windows. main, nightly, and dispatch run 13 + 13. | **Matrix records** | `pnpm matrix:validate` | every submitted client-compat record is well-formed | whether the client actually works | `matrix-records` | | **Windows** | (CI only) | that the code runs at all on the majority platform | e2e; Windows is unit-only | `windows` |
+
+> Correction (2026-10-10): `windows` also runs on a pull request when TypeScript source, scripts, or the lockfile changed. It is still unit + two daemon specs, not the web battery. | **macOS** | (CI only) | the POSIX-but-not-Linux surface (paths, spawn, `lsof`, temp/state dirs) plus a real daemon's lifecycle | everything Linux already covers; it deliberately no longer re-runs the unit tier at a 10x billing multiplier | `macos` | | **Rust** | `cargo fmt/clippy/check` | `adapters/realm/tauri` compiles and lints on Linux, macOS, and cross-checks Windows | everything JS | `rust` (always), `rust-macos` (only when Rust changes) |
+
+> Correction (2026-10-10): `rust` is path-routed, not always. Scheduled and manual runs still exercise it.
 
 **The single required status check is `gate`.** It passes when every job above either succeeded or was deliberately skipped by path routing, and fails on anything else. Adding a job to `ci.yml` is half the work; adding it to `gate`'s `needs:` list is the other half. A job missing from that list runs, reports, and is structurally incapable of blocking a merge.
 
@@ -134,6 +143,8 @@ node apps/e2e/soak.mjs --self-check                  # the soak gate still redde
 node apps/e2e/matrix.mjs --self-check                # the validator still refuses a malformed record
 pnpm gate:install:self-test                          # mis-wires every scaffold; the gate MUST go red
 ```
+
+> Correction (2026-10-10): five commands, not four. The heading above this list still says four.
 
 ---
 
@@ -211,3 +222,33 @@ It **runs in CI** as the `conformance` job, path-routed on the protocol, the sui
 It is a separate job rather than a step inside `e2e` for two reasons. That job boots the demo API with `REFLECT_MS=6000`, so a conformance run beside it would score every scenario against a deliberately-slowed backend while still printing a number. Both also want port 8787. It stays cheap despite driving Electron, because the desktop half needs a display and **not** Rust: it drives `apps/electron-smoke`, not the packaged Tauri binary that makes `desktop-e2e` the slowest job in the file.
 
 Run it by hand too when you touch the protocol, the adjudicator, or anything a verdict is derived from; the path filter is a routing decision, not a definition of what can break a verdict.
+
+## Path routing (tier map)
+
+CI path routing lives in [`scripts/ci/changes.mjs`](../scripts/ci/changes.mjs). Each changed file is mapped to the nearest workspace package in [`scripts/ci/tier-map.json`](../scripts/ci/tier-map.json), and those tiers are OR-ed with the regexes in [`scripts/ci/tier-patterns.json`](../scripts/ci/tier-patterns.json). A path that matches no tier, or a package missing from the map, turns every expensive job on. Any file under `.github/workflows/` or `scripts/ci/` does the same.
+
+## Flake quarantine
+
+[`.github/flaky.json`](../.github/flaky.json) is the only place a flake may be named. Each entry needs an issue and an `expires` date. An expired or issueless entry fails `format-check` via [`scripts/ci/flaky-expiry.mjs`](../scripts/ci/flaky-expiry.mjs). Quarantine is not a skip: the job still runs. An unquarantined red fails on the first attempt. A quarantined one may retry once and writes a warning.
+
+## Canaries
+
+A gate that has never been seen red is unverified. Planted canaries live under `scripts/ci/canaries/` and must stay absent on the merge path. The `planted-canaries` guard fails if one is committed.
+
+## Generated last-verified block
+
+The marker comments in section 0 are filled by [`scripts/ci/render-gates-table.mjs`](../scripts/ci/render-gates-table.mjs) from [`scripts/ci/gates-last-verified.json`](../scripts/ci/gates-last-verified.json). The handwritten table stays; the generated block is the machine-readable half. Compare the [MERGE-STANDARD.md](../.github/MERGE-STANDARD.md) fence to the live ruleset with [`scripts/ci/required-checks-drift.mjs`](../scripts/ci/required-checks-drift.mjs).
+
+## Where the merge gate is blind
+
+`gate` passes on `skipped`. These are the gaps that let a red job merge, with the file that names the close:
+
+1. Bench runs after merge (push to main, nightly, dispatch). The merge queue does not run bench until VE is green on three consecutive fork dispatch runs. See [MERGE-STANDARD.md](../.github/MERGE-STANDARD.md).
+2. The merge queue runs 0 Windows install cells. A PR runs 1 (`vite-react`). Nightly and dispatch run all 13 on Windows.
+3. package-quality and the break jobs lived outside `ci.yml` and were not required. They are folded into `gate` on this branch.
+4. Path routing: a path no rule matches used to turn gates off. An unrouted new directory now turns every tier on.
+5. Integration retries 3 times and e2e 2, and the first attempt used to vanish. Failed attempts now land in `artifacts/attempt-N/` and upload `if: always()`.
+
+## Running every gate before a PR
+
+The procedure, the exact local commands, fork dispatch, and the ledger row format are in [pre-pr-qualification.md](./pre-pr-qualification.md).
