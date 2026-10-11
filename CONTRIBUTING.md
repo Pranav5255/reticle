@@ -120,6 +120,10 @@ pnpm verify    # format:check, lint, typecheck, unit (~2 min) — ALWAYS
 
 Each of these exists because the ones above it are structurally blind to something. The unit gate cannot see cross-package drift; the e2e battery boots no desktop runtime; every app in `apps/` is already instrumented, so nothing but the install gate can see a broken `init`. That is why a green `pnpm test:unit` is not the same as "this works".
 
+## What must be green to merge
+
+[`.github/MERGE-STANDARD.md`](.github/MERGE-STANDARD.md) is the list. `gate` plus `dco` is what the live ruleset requires. Bench and the full Windows install matrix still run only after merge, quarantined in `.github/flaky.json`; CodeQL runs but is not a required check. That document names each gap and how it closes.
+
 Other useful scripts: `pnpm format` / `pnpm format:check` (Prettier), `pnpm knip` (unused files, exports, dependencies), and `pnpm bench` — the benchmark harness, which is **research, not a gate** (see [`bench/README.md`](bench/README.md)).
 
 ---
@@ -223,7 +227,7 @@ For anything non-trivial, **open an issue first** so we can agree on the approac
 ### What you can expect from us
 
 - **A reply to a claim or a question within a day, and a first review within two days.** If a PR has waited longer, say so on it; that is on us, not you.
-- **CI on a pull request takes about ten minutes.** The slowest suites (the benchmark and the full Windows install matrix) run after merge and nightly instead, so a PR you can act on is not held up by a job you cannot. Windows unit tests run on a PR when Windows-sensitive source changed.
+- **CI on a pull request takes about ten minutes.** The slowest suites (the benchmark and the full Windows install matrix) run after merge and nightly instead, so a PR you can act on is not held up by a job you cannot. Each one is quarantined in `.github/flaky.json` until it is green enough to join the merge queue. Windows unit tests run on a PR when Windows-sensitive source changed.
 - **Once it is approved, the merge queue lands it.** You do not need to keep rebasing while it waits.
 
 ### AI-assisted contributions

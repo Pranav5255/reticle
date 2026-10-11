@@ -217,3 +217,15 @@ Run it by hand too when you touch the protocol, the adjudicator, or anything a v
 ## Path routing
 
 CI path routing lives in [`scripts/ci/changes.mjs`](../scripts/ci/changes.mjs), and its output is written to the `changes` job's step summary. Each changed file is mapped to its nearest workspace package in [`scripts/ci/tier-map.json`](../scripts/ci/tier-map.json), and those tiers are OR-ed with the regexes in [`scripts/ci/tier-patterns.json`](../scripts/ci/tier-patterns.json). A path that matches no tier and is not docs-only, or a package missing from the map, turns every expensive job on. Any file under `.github/workflows/` or `scripts/ci/` does the same.
+
+## Flake quarantine
+
+[`.github/flaky.json`](../.github/flaky.json) is the only place a flake may be named. Each entry needs an issue and an `expires` date. An entry with no issue always fails `format-check` via [`scripts/ci/flaky-expiry.mjs`](../scripts/ci/flaky-expiry.mjs). An expired one fails the nightly, a manual run, and any pull request that edits `flaky.json`; on every other pull request it is a warning, so a date alone never reddens an unrelated change.
+
+Quarantine is not a skip: the job still runs. An unquarantined failure in the e2e battery or the integration suite fails on the first attempt. A quarantined one retries once, prints a warning, and every attempt's logs are uploaded, including a later green one.
+
+The parity guard (`post-merge-parity.test.ts`) reads this file too: a job or install cell that runs after merge but not in the merge queue must be quarantined here. Today that is `bench` and the thirteen Windows install cells; see [MERGE-STANDARD.md](../.github/MERGE-STANDARD.md) for how each one leaves.
+
+## A red nightly
+
+`nightly-watch` runs after `gate` on the scheduled run, and on a manual run on `main`. When anything failed it opens one `Nightly CI is red` issue, or comments on the open one. Forks skip the schedule; a dispatch still runs everything anywhere.
