@@ -1,3 +1,4 @@
+throw new Error("planted: first-attempt red");
 // Do the three pieces agree on the contract — and if not, is the AGENT told, with a fix?
 //
 // Reticle is three separately-installed pieces (the SDK in the page, the daemon, the MCP server the
