@@ -16,6 +16,6 @@ describe('root gate/test scripts are in CI or excused', () => {
       cwd: REPO_ROOT,
       encoding: 'utf8',
     });
-    expect(result).toMatch(/each has a job or an excuse/);
+    expect(result).toMatch(/each job runs the script, or has an excuse/);
   });
 });

@@ -79,7 +79,7 @@ jobs:
       # Workflow `needs:` typos and expired flake skips. Cheap, no build, fail-closed.
       - run: node scripts/ci/workflow-needs-exist.mjs --self-test && node scripts/ci/workflow-needs-exist.mjs
       - run: node scripts/ci/flaky-expiry.mjs --self-test && node scripts/ci/flaky-expiry.mjs
-      - run: node scripts/ci/root-scripts-in-ci.mjs
+      - run: node scripts/ci/root-scripts-in-ci.mjs --self-test && node scripts/ci/root-scripts-in-ci.mjs
       # The changelog rule lives in the `changelog-policy` job, NOT here.
       #
       # It was in both, with two different exemption lists: this copy exempted `release/` and that
@@ -621,6 +621,7 @@ jobs:
           # almost nothing). Any file under .github/workflows/ or scripts/ci/ turns every
           # tier on. Incident: 2026-10 nightlies red on jobs the PR never ran.
           echo "$CHANGED" | node scripts/ci/changes.mjs --summary
+          echo "$CHANGED" | node scripts/ci/gate-weaken.mjs
       # WHICH install-gate cells to run, as an explicit os/scaffold list.
       #
       # Ubuntu always runs all thirteen: it is the cheap platform, a cell takes 6-7 minutes, and ten of
@@ -1349,29 +1350,32 @@ jobs:
   nightly-watch:
     if: github.event_name == 'schedule' && always()
     runs-on: ubuntu-latest
-    needs: [verify, unit-tests, e2e, install-gate, windows, bench, desktop-e2e, conformance]
+    needs: [gate]
     timeout-minutes: 5
     permissions:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Required-checks drift (advisory)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/required-checks-drift.mjs --repo ${{ github.repository }} --advisory
       - name: Open or update the nightly-red issue
         env:
           GH_TOKEN: ${{ github.token }}
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          GATE: ${{ needs.gate.result }}
         run: |
-          failed=""
-          for r in $RESULTS; do
-            case "$r" in
-              success|skipped) ;;
-              *) failed=yes ;;
-            esac
-          done
-          [ -n "$failed" ] || { echo "nightly green"; exit 0; }
+          case "$GATE" in
+            success|skipped) echo "gate $GATE"; extra="" ;;
+            *) extra="gate=$GATE" ;;
+          esac
+          failed_jobs=$(gh run view "${{ github.run_id }}" --json jobs --jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | .name] | join(", ")' || true)
+          [ -z "$extra" ] && [ -z "$failed_jobs" ] && { echo "nightly green"; exit 0; }
           title='Nightly CI is red'
           existing=$(gh issue list --search "$title in:title" --state open --json number --jq '.[0].number')
           body="Scheduled run ${{ github.run_id }} on ${{ github.sha }} reported a failure.
-          Results: $RESULTS
+          gate: $GATE
+          failed jobs: ${failed_jobs:-none listed}
           ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"

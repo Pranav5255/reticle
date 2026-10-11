@@ -284,6 +284,13 @@ describe('CI routing decisions', () => {
     });
   });
 
+  it('ORs the tier-map for a known workspace package', () => {
+    expect(route(['adapters/realm/cli/src/index.ts'])).toMatchObject({
+      e2e: 'true',
+      windows: 'true',
+    });
+  });
+
   it('turns every tier on when any workflow file changes', () => {
     expect(route(['.github/workflows/dco.yml'])).toMatchObject({
       e2e: 'true',

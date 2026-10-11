@@ -1,3 +1,12 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "id": "queue-bench",
+      "job_or_test": "bench",
+      "issue": "local: VE red on 178e5c070, parked off merge_group",
+      "owner": "Pranav5255",
+      "added": "2026-10-11",
+      "expires": "2026-11-10"
+    }
+  ]
 }

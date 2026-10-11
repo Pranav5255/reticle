@@ -225,7 +225,7 @@ Run it by hand too when you touch the protocol, the adjudicator, or anything a v
 
 ## Path routing (tier map)
 
-CI path routing lives in [`scripts/ci/changes.mjs`](../scripts/ci/changes.mjs). Package-to-tier ownership is [`scripts/ci/tier-map.json`](../scripts/ci/tier-map.json). A path that matches no tier and is not docs-only turns every expensive job on. Any file under `.github/workflows/` or `scripts/ci/` does the same. Adding a workspace package without a map row fails the `tier-map-complete` guard.
+CI path routing lives in [`scripts/ci/changes.mjs`](../scripts/ci/changes.mjs). Each changed file is mapped to the nearest workspace package in [`scripts/ci/tier-map.json`](../scripts/ci/tier-map.json), and those tiers are OR-ed with the regexes in [`scripts/ci/tier-patterns.json`](../scripts/ci/tier-patterns.json). A path that matches no tier, or a package missing from the map, turns every expensive job on. Any file under `.github/workflows/` or `scripts/ci/` does the same.
 
 ## Flake quarantine
 

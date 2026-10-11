@@ -37,3 +37,8 @@ analyze (javascript-typescript)
 ```
 
 Compare that fence to the live ruleset with `node scripts/ci/required-checks-drift.mjs`. The mismatch it reports today (live is `gate` and `dco` only) is expected until a maintainer applies the proposed ruleset.
+
+## Core rules
+
+1. **Parity.** A job that can run on push to `main` must be able to run on `merge_group`, with the same routing. The only exceptions are side-effect jobs (`fixtures-dispatch`, `nightly-watch`) and an expiring, issue-linked entry in `.github/flaky.json`.
+2. **Gate machinery has owners.** Edits to `.github/`, `scripts/ci/`, `.github/flaky.json`, install or bench baselines, and the CI guards need a code-owner review. A PR that loosens those files is labelled in the `changes` summary.
