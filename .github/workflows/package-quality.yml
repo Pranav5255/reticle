@@ -11,13 +11,13 @@ name: Package quality
 on:
   push:
     branches: [main]
-  pull_request:
+  # PR trigger removed: the same steps now run as the `package-quality` job in ci.yml, which
+  # is in `gate.needs` and therefore runs on PRs and merge_group.
 
-# A superseded pull-request run holds runners the next one needs; cancel it. Pushes to main and
-# scheduled runs always finish, same rule as ci.yml.
+# Push to main only now. Do not cancel; a superseded main run still has to finish.
 concurrency:
   group: '${{ github.workflow }}-${{ github.ref }}'
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

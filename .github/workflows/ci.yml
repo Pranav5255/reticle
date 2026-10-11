@@ -1263,6 +1263,140 @@ jobs:
           echo "See .changes/README.md. If this IS the release PR, branch from release/."
           exit 1
 
+  # Folded out of break-gates.yml so `init/**` and setup changes run the refusals, and so `gate`
+  # can need them. The standalone workflow keeps push-to-main only.
+  launchers:
+    needs: [changes]
+    if: needs.changes.outputs.break == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: install.sh parses
+        shell: bash
+        run: sh -n install/install.sh
+      - name: install.ps1 parses
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errs = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "$env:GITHUB_WORKSPACE\install\install.ps1", [ref]$null, [ref]$errs)
+          if ($errs) { $errs | ForEach-Object { Write-Host $_.Message }; throw 'install.ps1 does not parse' }
+      - name: the launchers are pure ASCII
+        shell: bash
+        run: |
+          # perl, not `grep -P`: macOS grep has no -P, and its usage error read as "no match", so
+          # the macOS cell passed whatever the launchers contained.
+          LC_ALL=C perl -ne 'if (/[^\x00-\x7F]/) { print "$ARGV:$.: non-ASCII: $_"; $bad = 1 } close ARGV if eof; END { exit($bad ? 1 : 0) }' \
+            install/install.sh install/install.ps1
+
+  early-gates:
+    needs: [format-check, changes]
+    if: needs.changes.outputs.break == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 22 }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build --filter=@reticlehq/server...
+      - name: no package.json is refused, by path
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/empty" && cd "$RUNNER_TEMP/empty"
+          out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
+          echo "$out" | grep -qi "no package.json" || { echo "$out"; exit 1; }
+      - name: malformed package.json names the file, not a stack trace
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bad" && cd "$RUNNER_TEMP/bad"
+          printf '{ "name": "x", }' > package.json
+          out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
+          echo "$out" | grep -q "not valid JSON" || { echo "$out"; exit 1; }
+          echo "$out" | grep -qE "^\s+at .+:[0-9]+:[0-9]+" && { echo "leaked a stack trace"; exit 1; }
+          exit 0
+      - name: a project with no dev script stops rather than inventing one
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/nodev" && cd "$RUNNER_TEMP/nodev"
+          printf '{"name":"x","version":"1.0.0","scripts":{"build":"true"}}' > package.json
+          out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
+          echo "$out" | grep -q "rather than invent" || { echo "$out"; exit 1; }
+
+  break-matrix:
+    needs: [format-check, changes]
+    if: needs.changes.outputs.break == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 22 }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build --filter=@reticlehq/server...
+      - run: node break/break-matrix.mjs
+        timeout-minutes: 25
+
+  package-quality:
+    runs-on: ubuntu-latest
+    needs: [format-check]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: publint (every published package)
+        run: |
+          set -e
+          dirs=$(git ls-files '*/package.json' | grep -v '^apps/' | xargs -n1 dirname)
+          checked=0
+          for dir in $dirs; do
+            name=$(node -p "try{require('./$dir/package.json').private?'':require('./$dir/package.json').name}catch(e){''}")
+            [ -z "$name" ] && continue
+            checked=$((checked+1))
+            echo "::group::publint $name"
+            (cd "$dir" && npx --yes publint@0.3.21 --strict)
+            echo "::endgroup::"
+          done
+          echo "publint checked $checked package(s)"
+          [ "$checked" -ge 10 ] || { echo "::error::publint checked $checked packages; expected at least 10"; exit 1; }
+      - name: Are the types wrong (every published package)
+        run: |
+          set -e
+          dirs=$(git ls-files '*/package.json' | grep -v '^apps/' | xargs -n1 dirname)
+          checked=0
+          for dir in $dirs; do
+            name=$(node -p "try{require('./$dir/package.json').private?'':require('./$dir/package.json').name}catch(e){''}")
+            [ -z "$name" ] && continue
+            checked=$((checked+1))
+            echo "::group::attw $name"
+            (cd "$dir" && npx --yes @arethetypeswrong/cli@0.18.5 --pack --ignore-rules cjs-resolves-to-esm no-resolution)
+            echo "::endgroup::"
+          done
+          echo "attw checked $checked package(s)"
+          [ "$checked" -ge 10 ] || { echo "::error::attw checked $checked packages; expected at least 10"; exit 1; }
+      - name: Published package size budgets
+        run: node scripts/check-pack-size.mjs
+
   gate:
     runs-on: ubuntu-latest
     # Every job that can fail a PR is listed HERE. A job missing from this list runs, reports, and is
@@ -1299,6 +1433,10 @@ jobs:
         conformance,
         bench,
         multi-agent,
+        launchers,
+        early-gates,
+        break-matrix,
+        package-quality,
       ]
     if: always()
     timeout-minutes: 5
