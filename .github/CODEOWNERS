@@ -36,6 +36,10 @@
 
 # Everything a change here can break without a test noticing.
 /.github/                  @divshekhar
+/.github/flaky.json        @divshekhar
 /bench/                    @divshekhar
 /docs/                     @divshekhar
 /scripts/                  @divshekhar
+/scripts/ci/               @divshekhar
+/server/src/guards/        @divshekhar
+/server/src/ci-*.test.ts   @divshekhar

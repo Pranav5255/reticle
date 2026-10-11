@@ -9,9 +9,9 @@ That gap is the difference between a gate and a decoration. A decoration still c
 
 ## How it works here
 
-`ci.yml` ends in a single job called **`gate`**. It waits on every other job in that file and passes only when each one either succeeded or was legitimately skipped. So one required check, `gate`, covers all fifteen jobs in `ci.yml`.
+`ci.yml` ends in a single job called **`gate`**. It waits on every other job in that file and passes only when each one either succeeded or was legitimately skipped. So one required check, `gate`, covers every job listed in its `needs:` in `ci.yml`.
 
-That trick only reaches so far. A job can only wait on jobs in **its own workflow file**, so the five workflows below cannot be folded into `gate`. Each has to be named in branch protection separately, or it blocks nothing.
+That trick only reaches so far. A job can only wait on jobs in **its own workflow file**, so the workflows below cannot be folded into `gate`. Each has to be named in branch protection separately, or it blocks nothing.
 
 `server/src/ci-aggregate-covers-jobs.test.ts` fails if a new workflow starts running on pull requests without being accounted for, and if a job in `ci.yml` is not watched by `gate`.
 
@@ -21,11 +21,11 @@ Set these as required status checks on the default branch:
 
 | check | what it is | what merges without it |
 | --- | --- | --- |
-| `gate` | every job in `ci.yml`: build, tests, e2e, desktop, install, Rust, Windows, macOS, bench | a red build of any kind |
-| `package-quality` | the published packages: exports and types correctness, and the browser SDK's size budget | a package that installs but cannot be imported, or a silently growing SDK |
-| `break-gates` | onboarding | a broken first-run experience |
-| `codeql` | security scan | a flagged vulnerability |
+| `gate` | every job in `ci.yml`: build, tests, e2e, desktop, install, Rust, Windows, macOS, bench, package quality, the break gates | a red build of any kind (bench and the Windows install cells only after merge; see below) |
+| `analyze (javascript-typescript)` | CodeQL security scan; runs on `merge_group` | a flagged vulnerability |
 | `dco` | contributions are signed off | an unsigned contribution |
+
+package-quality and the break gates (`launchers`, `early-gates`, `break-matrix`) run as jobs inside `ci.yml` and are covered by `gate`. They used to be separate workflows with no `merge_group` trigger, so requiring them by name would have stalled the queue.
 
 `labeler` is deliberately absent. It adds labels to a pull request; there is no result to block on.
 

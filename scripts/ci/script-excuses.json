@@ -1,0 +1,11 @@
+{
+  "gate:install-sandbox": "local sandbox probe; CI runs gate:install on the install-gate job",
+  "gate:install:self-test": "self-test of the gate, not the product; run on the install-gate job via --self-test when that job's own files change",
+  "gate:multi:self-test": "self-test of the multi-agent sim; the live sim is the multi-agent job",
+  "gate:soak": "hours-long stability probe; too slow for gate.needs",
+  "gate:soak:self-check": "fixture check for soak, not a merge gate",
+  "gate:soak:record": "writes a soak recording; not a merge gate",
+  "gate:conformance:self-test": "self-test of the conformance runner; the conformance job runs the gate",
+  "test:coverage": "coverage report, not a merge verdict",
+  "test:bench": "already part of test:unit, which verify and unit-tests run"
+}

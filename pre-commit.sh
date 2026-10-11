@@ -154,6 +154,11 @@ if ! pnpm audit --audit-level high; then note "${YELLOW}⚠ audit (high+ advisor
 step "Prettier (format check)"
 if ! pnpm -s format:check; then note "${RED}✗ prettier${NC}"; fail=1; else note "${GREEN}✓ format${NC}"; fi
 
+# Advisory: CI router or workflow edits need MERGE-STANDARD and gates.md if the merge path changed.
+if staged | grep -qE '^(\.github/workflows/|scripts/ci/)'; then
+  note "${YELLOW}! CI router or workflow changed — update MERGE-STANDARD.md and docs/gates.md if the merge path changed${NC}"
+fi
+
 # ----- 8. SUMMARY ----------------------------------------------------------
 if [ "$fail" -ne 0 ]; then
   note "\n${RED}✗ pre-commit FAILED — commit blocked${NC}"

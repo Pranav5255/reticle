@@ -22,8 +22,9 @@ permissions:
   contents: read
 
 on:
-  pull_request:
-    paths: ['break/**', 'install/**', '.github/workflows/break-gates.yml']
+  # PR trigger removed: launchers, early-gates and break-matrix now live in ci.yml behind the
+  # `break` route and `gate.needs`. Push to main keeps a second copy so a default-branch-only
+  # path filter still has a home until that workflow is deleted.
   push:
     branches: [main]
     paths: ['break/**', 'install/**', '.github/workflows/break-gates.yml']
@@ -60,11 +61,10 @@ jobs:
       - name: the launchers are pure ASCII
         shell: bash
         run: |
-          for f in install/install.sh install/install.ps1; do
-            if LC_ALL=C grep -qP '[^\x00-\x7F]' "$f"; then
-              echo "$f contains non-ASCII bytes:"; LC_ALL=C grep -nP '[^\x00-\x7F]' "$f"; exit 1
-            fi
-          done
+          # perl, not `grep -P`: macOS grep has no -P, and its usage error read as "no match", so
+          # the macOS cell passed whatever the launchers contained.
+          LC_ALL=C perl -ne 'if (/[^\x00-\x7F]/) { print "$ARGV:$.: non-ASCII: $_"; $bad = 1 } close ARGV if eof; END { exit($bad ? 1 : 0) }' \
+            install/install.sh install/install.ps1
 
   # The refusals a user meets before anything has been written, on every OS. These run the SHIPPED
   # CLI: the same three questions used to be asked of the prototype, where passing proved nothing

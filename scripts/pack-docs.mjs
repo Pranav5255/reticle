@@ -48,6 +48,7 @@ export const PRUNED_FILES = [
   'style.css',
   'gates.md',
   'gate-plan.md',
+  'pre-pr-qualification.md',
   'fixtures.md',
   // How to publish THIS repo to a local registry to test unpublished changes: a contributor task.
   'local-registry.md',

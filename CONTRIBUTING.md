@@ -106,7 +106,7 @@ The TypeScript library packages are **strict TypeScript** and are the focus of t
 Every change runs the fast gate. Some changes need one more:
 
 ```bash
-pnpm lint && pnpm typecheck && pnpm test:unit    # ~2 min — ALWAYS
+pnpm verify    # format:check, lint, typecheck, unit (~2 min) — ALWAYS
 ```
 
 | If you also touched… | Also run | Cost |
@@ -116,9 +116,28 @@ pnpm lint && pnpm typecheck && pnpm test:unit    # ~2 min — ALWAYS
 | `adapters/realm/electron`, `adapters/realm/tauri`, the IPC observer, desktop capture | `pnpm test:e2e:desktop` | ~3 min |
 | telemetry, feedback, or anything that emits an event | read [`docs/telemetry-contract.md`](docs/telemetry-contract.md) **first**, then `pnpm test:e2e` | — |
 
-**This routing is the whole rule, and [`docs/gates.md`](docs/gates.md) is the full map** — every gate, what it proves, what it is blind to, and which CI job runs it. CI runs everything regardless, so skipping a tier costs you a slower red, never a missed one.
+**This routing is the whole rule, and [`docs/gates.md`](docs/gates.md) is the full map** — every gate, what it proves, what it is blind to, and which CI job runs it. CI is path-routed too, and `gate` counts a skipped job as green, so a tier you skip may also be skipped in CI: when in doubt, run it.
 
 Each of these exists because the ones above it are structurally blind to something. The unit gate cannot see cross-package drift; the e2e battery boots no desktop runtime; every app in `apps/` is already instrumented, so nothing but the install gate can see a broken `init`. That is why a green `pnpm test:unit` is not the same as "this works".
+
+## Before you open a pull request: qualify on your fork
+
+Follow the eight steps in [`docs/pre-pr-qualification.md`](docs/pre-pr-qualification.md). Short form:
+
+1. Branch from fresh upstream `main`.
+2. TDD. `pnpm verify` before every commit.
+3. Always, locally: format, verify, unit, matrix-records, DCO/changelog.
+4. Locally, by what you changed: [docs/gates.md](docs/gates.md) section 1. No matching row means run all.
+5. On your fork, for any change outside `docs/` and `*.md`: `gh workflow run ci.yml` on your fork against the branch. Wait. Classify a red; do not "fix" it by re-running.
+6. PR body: final SHA, fork run URL, what you ran, and NOT RUN reasons.
+7. After a rebase or a new commit, the local checks and the fork run are stale. Repeat them.
+8. Open the PR when the fork run is green, or every red is FLAKE with an issue linked.
+
+Fork Actions are off by default. A push to a branch does not always start CI. Use `workflow_dispatch`.
+
+## What must be green to merge
+
+[`.github/MERGE-STANDARD.md`](.github/MERGE-STANDARD.md) is the list. `gate` plus `dco` is what the live ruleset requires. Bench and the full Windows install matrix still run only after merge, quarantined in `.github/flaky.json`; CodeQL runs but is not a required check. That document names each gap and how it closes.
 
 Other useful scripts: `pnpm format` / `pnpm format:check` (Prettier), `pnpm knip` (unused files, exports, dependencies), and `pnpm bench` — the benchmark harness, which is **research, not a gate** (see [`bench/README.md`](bench/README.md)).
 
@@ -223,7 +242,12 @@ For anything non-trivial, **open an issue first** so we can agree on the approac
 ### What you can expect from us
 
 - **A reply to a claim or a question within a day, and a first review within two days.** If a PR has waited longer, say so on it; that is on us, not you.
-- **CI on a pull request takes about ten minutes.** The slowest suites (the benchmark, Windows unit tests, the full Windows install matrix) run in the merge queue and nightly instead, so a PR you can act on is not held up by a job you cannot.
+- **CI on a pull request takes about ten minutes.** The slowest suites (the benchmark and the full Windows install matrix) run after merge and nightly instead, and each one is quarantined in `.github/flaky.json` until it is green enough to join the merge queue. Windows unit tests run on a PR when Windows-sensitive source changed.
+
+## Agent skills for contributors
+
+Contributor (not user) skills live in [`.claude/skills/`](.claude/skills/) and are listed in [`AGENTS.md`](AGENTS.md). The public user skill is still root [`SKILL.md`](SKILL.md). Do not add contributor skills under `skills/`.
+
 - **Once it is approved, the merge queue lands it.** You do not need to keep rebasing while it waits.
 
 ### AI-assisted contributions
