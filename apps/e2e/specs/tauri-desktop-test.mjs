@@ -88,7 +88,13 @@ try {
       : String(tauriSession.url),
   );
   // Several windows of one Tauri app share an origin; the label is how the listing tells them apart.
-  chk('the session names its Tauri window', tauriSession?.window === 'main', String(tauriSession?.window));
+  // The label rides on the SDK's first PAGE_HEALTH event, which can land after the session itself:
+  // read straight after connecting it was `undefined` on one CI run and `main` on the same commit's
+  // next. Wait for it, bounded. A label that never arrives still fails here.
+  const labelled = () =>
+    server.bridge.sessions.list().find((s) => PACKAGED_TAURI_ORIGINS.includes(String(s?.url)))?.window;
+  for (let i = 0; i < 50 && labelled() === undefined; i++) await sleep(100);
+  chk('the session names its Tauri window', labelled() === 'main', String(labelled()));
 
   for (let i = 0; i < 40; i++) {
     if (JSON.stringify(await tool('reticle_network', {})).includes('ipc://load_todos')) break;

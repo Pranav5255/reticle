@@ -414,8 +414,24 @@ describe('handing the dev server over', () => {
           /* already gone, which is the failure this test reports */
         }
       }
-      // Windows holds the log open for a moment after the kill: EBUSY, retried rather than thrown.
-      rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+      // `taskkill` returns before Windows has released the tree's handles on its cwd and its log,
+      // and ten rmSync retries still met EBUSY on a runner (`rmdir ...\Temp\handover-*`) after
+      // every assertion above had passed. Wait for the server to stop beating, bounded, so the
+      // kill has actually landed; then clean up best effort. A temp directory the OS is still
+      // holding says nothing about the handover, so it must not fail the test.
+      const settled = Date.now() + 5_000;
+      let last = beatNow();
+      while (Date.now() < settled) {
+        await sleep(100);
+        const next = beatNow();
+        if (next === last) break;
+        last = next;
+      }
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+      } catch {
+        /* EBUSY from a handle Windows has not released yet; the OS reclaims the temp dir */
+      }
     }
   }, 20_000);
 });
