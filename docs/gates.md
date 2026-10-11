@@ -211,3 +211,7 @@ It **runs in CI** as the `conformance` job, path-routed on the protocol, the sui
 It is a separate job rather than a step inside `e2e` for two reasons. That job boots the demo API with `REFLECT_MS=6000`, so a conformance run beside it would score every scenario against a deliberately-slowed backend while still printing a number. Both also want port 8787. It stays cheap despite driving Electron, because the desktop half needs a display and **not** Rust: it drives `apps/electron-smoke`, not the packaged Tauri binary that makes `desktop-e2e` the slowest job in the file.
 
 Run it by hand too when you touch the protocol, the adjudicator, or anything a verdict is derived from; the path filter is a routing decision, not a definition of what can break a verdict.
+
+## Path routing
+
+CI path routing lives in [`scripts/ci/changes.mjs`](../scripts/ci/changes.mjs), and its output is written to the `changes` job's step summary. Each changed file is mapped to its nearest workspace package in [`scripts/ci/tier-map.json`](../scripts/ci/tier-map.json), and those tiers are OR-ed with the regexes in [`scripts/ci/tier-patterns.json`](../scripts/ci/tier-patterns.json). A path that matches no tier and is not docs-only, or a package missing from the map, turns every expensive job on. Any file under `.github/workflows/` or `scripts/ci/` does the same.
