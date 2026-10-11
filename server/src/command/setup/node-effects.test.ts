@@ -348,8 +348,13 @@ describe('handing the dev server over', () => {
            i += 1;
            process.stdout.write('line ' + i + '\\n');
            // Publish a complete beat: a reader of writeFileSync's target can catch it truncated.
-           fs.writeFileSync(beat + '.next', String(i));
-           fs.renameSync(beat + '.next', beat);
+           // On Windows the rename fails with EPERM while the test has the beat open, and a throw
+           // here killed the server, so the beat froze and the test blamed the handover. Skip the
+           // beat; the next tick publishes a later one.
+           try {
+             fs.writeFileSync(beat + '.next', String(i));
+             fs.renameSync(beat + '.next', beat);
+           } catch {}
          }, 20);`,
     );
     const script = `
