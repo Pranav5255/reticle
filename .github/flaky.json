@@ -7,7 +7,7 @@
       "owner": "Pranav5255",
       "added": "2026-10-11",
       "expires": "2026-11-10",
-      "note": "bench is red on main (coverage shrank, VE regressed); runs after merge only until it is green"
+      "note": "bench is red on main (coverage shrank, VE regressed). Quarantined from the merge queue only: it still runs after merge, nightly and on dispatch, and is EXPECTED red there until fixed."
     },
     {
       "id": "install-gate/windows-latest/vite-react",

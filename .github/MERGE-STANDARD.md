@@ -14,7 +14,7 @@ Covered when they run: `format-check`, `verify`, `unit-tests`, `smoke`, `e2e`, `
 
 | Gap | What happens today | Close with |
 | --- | --- | --- |
-| Bench on a PR | `bench` runs on push to main, nightly, and dispatch. It is quarantined in `.github/flaky.json` (the parity guard requires that) while it is red on main. | Add `merge_group` to its `if:` and delete the entry after three consecutive green nightlies on main. |
+| Bench on a PR | `bench` runs on push to main, nightly, and dispatch. It is quarantined in `.github/flaky.json` (the parity guard requires that) while it is red on main. | Add `merge_group` to its `if:` and delete the entry after three consecutive green nightlies on main. Until then a red `bench` on the nightly or a manual run is expected and turns that run's `gate` red. |
 | Windows install in the queue | A PR runs one Windows scaffold (`vite-react`). The queue runs zero Windows install cells. Nightly and dispatch run all 13 on Windows. Each cell is quarantined in `.github/flaky.json`. | Add a cell to the `merge_group` branch of `install_matrix` and delete its entry after three consecutive green nightlies for that cell. |
 | package-quality | Lived in a separate workflow with no `merge_group` trigger, so requiring it stalled the queue. | Runs as a `ci.yml` job in `gate.needs`. |
 | break-gates | Lived in `break-gates.yml`, triggered only on `break/**` and `install/**`, not on `init/**` or setup. Not in `gate`. | Runs as three `ci.yml` jobs behind a `break` route, in `gate.needs`. |
