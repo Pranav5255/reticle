@@ -16,12 +16,15 @@ const DEFAULT_FILE = join(HERE, '..', '..', '.github', 'flaky.json');
  * @param {string} today YYYY-MM-DD
  * @returns {string[]}
  */
-export function expiredEntries(text, today) {
+function entriesOf(text) {
   const parsed = JSON.parse(text);
-  const entries = parsed.entries;
-  if (!Array.isArray(entries)) throw new Error('flaky.json: entries must be an array');
+  if (!Array.isArray(parsed.entries)) throw new Error('flaky.json: entries must be an array');
+  return parsed.entries;
+}
+
+export function expiredEntries(text, today) {
   const stale = [];
-  for (const entry of entries) {
+  for (const entry of entriesOf(text)) {
     if ('object' !== typeof entry || null === entry) continue;
     const expires = entry.expires;
     const id = 'string' === typeof entry.id ? entry.id : JSON.stringify(entry);
@@ -35,6 +38,21 @@ export function expiredEntries(text, today) {
     if (expires < today) stale.push(`${id}: expired ${expires}`);
   }
   return stale;
+}
+
+/** True when `id` matches a current, issue-linked quarantine (by `id` or `job_or_test`). */
+export function isQuarantined(text, id, today) {
+  return entriesOf(text).some((entry) => {
+    if ('object' !== typeof entry || null === entry) return false;
+    const name = entry.id === id || entry.job_or_test === id;
+    return (
+      name &&
+      'string' === typeof entry.expires &&
+      entry.expires >= today &&
+      'string' === typeof entry.issue &&
+      '' !== entry.issue
+    );
+  });
 }
 
 function todayUtc() {
@@ -71,7 +89,32 @@ function main(argv) {
       console.error('self-test: future expiry was rejected');
       return 1;
     }
+    const body = JSON.stringify({
+      entries: [
+        { id: 'e2e', job_or_test: 'e2e', expires: '2099-01-01', issue: '3' },
+        { id: 'old', job_or_test: 'integration', expires: '2020-01-01', issue: '4' },
+      ],
+    });
+    if (!isQuarantined(body, 'e2e', '2026-10-11') || isQuarantined(body, 'integration', '2026-10-11')) {
+      console.error('self-test: quarantine allow/deny was wrong');
+      return 1;
+    }
     console.log('self-test: expiry red then green');
+    return 0;
+  }
+
+  const allowsAt = argv.indexOf('--allows');
+  if (-1 !== allowsAt) {
+    const id = argv[allowsAt + 1];
+    if ('string' !== typeof id || '' === id) {
+      console.error('usage: flaky-expiry.mjs --allows <id>');
+      return 1;
+    }
+    if (!isQuarantined(readFileSync(DEFAULT_FILE, 'utf8'), id, todayUtc())) {
+      console.error(`unquarantined: ${id}`);
+      return 1;
+    }
+    console.log(`quarantined: ${id}`);
     return 0;
   }
 

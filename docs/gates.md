@@ -229,7 +229,7 @@ CI path routing lives in [`scripts/ci/changes.mjs`](../scripts/ci/changes.mjs). 
 
 ## Flake quarantine
 
-[`.github/flaky.json`](../.github/flaky.json) is the only place a flake may be named. Each entry needs an issue and an `expires` date. An expired or issueless entry fails `format-check` via [`scripts/ci/flaky-expiry.mjs`](../scripts/ci/flaky-expiry.mjs). Quarantine is not a skip: the job still runs.
+[`.github/flaky.json`](../.github/flaky.json) is the only place a flake may be named. Each entry needs an issue and an `expires` date. An expired or issueless entry fails `format-check` via [`scripts/ci/flaky-expiry.mjs`](../scripts/ci/flaky-expiry.mjs). Quarantine is not a skip: the job still runs. An unquarantined red fails on the first attempt. A quarantined one may retry once and writes a warning.
 
 ## Canaries
 
