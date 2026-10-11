@@ -994,3 +994,5 @@ function runInitSteps(options: InitOptions, io: InitIo): InitResult {
   io.host.reportOutcome(outcome);
   return { ...result, ...handover };
 }
+
+// planted: routing probe
