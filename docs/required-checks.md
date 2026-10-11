@@ -11,6 +11,8 @@ That gap is the difference between a gate and a decoration. A decoration still c
 
 `ci.yml` ends in a single job called **`gate`**. It waits on every other job in that file and passes only when each one either succeeded or was legitimately skipped. So one required check, `gate`, covers all fifteen jobs in `ci.yml`.
 
+> Correction (2026-10-10): `gate` needs 19 jobs after the fold of break and package-quality (plus `changes` and `changelog-policy`), not fifteen. Count the `needs:` list in `ci.yml`.
+
 That trick only reaches so far. A job can only wait on jobs in **its own workflow file**, so the five workflows below cannot be folded into `gate`. Each has to be named in branch protection separately, or it blocks nothing.
 
 `server/src/ci-aggregate-covers-jobs.test.ts` fails if a new workflow starts running on pull requests without being accounted for, and if a job in `ci.yml` is not watched by `gate`.
@@ -26,6 +28,8 @@ Set these as required status checks on the default branch:
 | `break-gates` | onboarding | a broken first-run experience |
 | `codeql` | security scan | a flagged vulnerability |
 | `dco` | contributions are signed off | an unsigned contribution |
+
+> Correction (2026-10-10): `bench` is `skipped` at merge unless the queue replay-only pass runs (bench paths changed). No check named `break-gates` exists; the jobs are `launchers`, `early-gates`, and `break-matrix`. The CodeQL check is `analyze (javascript-typescript)`. `package-quality.yml` and `break-gates.yml` have no `merge_group` trigger; requiring those check names stalls the queue. Those jobs now live inside `ci.yml` and `gate`. The live ruleset still requires only `gate` and `dco`.
 
 `labeler` is deliberately absent. It adds labels to a pull request; there is no result to block on.
 

@@ -216,6 +216,7 @@
                 "pages": [
                   "first-drive",
                   "gates",
+                  "pre-pr-qualification",
                   "gate-plan",
                   "required-checks",
                   "state-files",

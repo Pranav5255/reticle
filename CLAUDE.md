@@ -93,6 +93,12 @@ This is **one git repo** at the root (pnpm + turbo monorepo). The TS library pac
 
 `format:check` is first because it is the one CI enforces that **`pnpm lint` does not run**. This checklist omitted it until 2.6.0, which is exactly how a release branch with all four heavy gates green locally still turned CI's `verify` red on six prettier warnings — and `verify` is a dependency of `e2e`, `desktop-e2e` and `install-gate`, so one unformatted file skips every expensive gate behind it. `pnpm format` writes the fixes.
 
+> Correction (2026-10-10): the expensive jobs now depend on `format-check`, not `verify`. `gate` still requires the full `verify` job.
+
+Before opening a PR to upstream, run the fork qualification in [`docs/pre-pr-qualification.md`](docs/pre-pr-qualification.md); a claim of green cites a ledger row.
+
+Changing what CI must check? Load `.claude/skills/wire-into-gates/SKILL.md`. Editing a workflow? Load `.claude/skills/edit-ci-workflow/SKILL.md`. The table of contributor skills is in [`AGENTS.md`](AGENTS.md).
+
 CI's `verify` job also runs `node scripts/check-js-audit.mjs --self-test && node scripts/check-js-audit.mjs`. It fails on high/critical JavaScript advisories except the two exact, unpatched development-tool paths reviewed in [`.github/REPOSITORY-SETTINGS.md`](.github/REPOSITORY-SETTINGS.md). The checker fails if those paths, versions, dependency placement, or upstream patch status change. Local `pnpm verify` does not run the registry-backed audit.
 
 **Need quick product feedback?** Run `pnpm test:smoke` (one-time prerequisite: `pnpm exec playwright install chromium`). It builds the server dependency closure and checks real stdio MCP → daemon → Chromium → SDK → positive and negative verdicts. Evidence is in `artifacts/smoke/`; it does not replace the install, full E2E, or desktop gates. CI qualification is pending because the restricted local workspace cannot bind loopback ports.

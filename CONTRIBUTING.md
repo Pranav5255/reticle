@@ -23,7 +23,7 @@ This is a single git repo — a **pnpm + [turbo](https://turbo.build/) monorepo*
 
 ```bash
 pnpm install
-pnpm hooks:install    # symlinks pre-commit.sh — runs format → lint → types → tests on staged files
+pnpm hooks:install    # pre-commit quality gate, sign-off, and pre-push deny of reticlehq/reticle
 ```
 
 The hook is optional and mirrors the fast gate, so it catches locally what CI would catch in ten minutes. It is not installed automatically; a repo that silently writes to your `.git/hooks` on `install` is a repo you cannot trust with a `postinstall`.
@@ -109,6 +109,8 @@ Every change runs the fast gate. Some changes need one more:
 pnpm lint && pnpm typecheck && pnpm test:unit    # ~2 min — ALWAYS
 ```
 
+> Correction (2026-10-10): the fast gate in CI is `pnpm verify`, which is `format:check && lint && typecheck && test:unit`. The line above omits `format:check`. Use `pnpm verify`.
+
 | If you also touched… | Also run | Cost |
 | --- | --- | --- |
 | the tool surface, the wire contract (`core`), or an observer | `pnpm test:e2e` | ~8 min |
@@ -118,7 +120,28 @@ pnpm lint && pnpm typecheck && pnpm test:unit    # ~2 min — ALWAYS
 
 **This routing is the whole rule, and [`docs/gates.md`](docs/gates.md) is the full map** — every gate, what it proves, what it is blind to, and which CI job runs it. CI runs everything regardless, so skipping a tier costs you a slower red, never a missed one.
 
+> Correction (2026-10-10): CI is path-routed. A path no `changes` rule matches turns expensive jobs off, and `gate` counts `skipped` as green. See [`.github/MERGE-STANDARD.md`](.github/MERGE-STANDARD.md).
+
 Each of these exists because the ones above it are structurally blind to something. The unit gate cannot see cross-package drift; the e2e battery boots no desktop runtime; every app in `apps/` is already instrumented, so nothing but the install gate can see a broken `init`. That is why a green `pnpm test:unit` is not the same as "this works".
+
+## Before you open a pull request: qualify on your fork
+
+Follow the eight steps in [`docs/pre-pr-qualification.md`](docs/pre-pr-qualification.md). Short form:
+
+1. Branch from fresh upstream `main`.
+2. TDD. `pnpm verify` before every commit.
+3. Tier A always: format, verify, unit, matrix-records, DCO/changelog.
+4. Tier B by [docs/gates.md](docs/gates.md) section 1. No matching row means run all.
+5. Tier C for any change outside `docs/` and `*.md`: `gh workflow run ci.yml` on your fork against the branch. Wait. Classify a red; do not "fix" it by re-running.
+6. PR body: final SHA, fork run URL, ledger rows, NOT RUN reasons.
+7. After rebase or a new commit, Tier A and Tier C are stale. Repeat them.
+8. Open the upstream PR only when Tier C is green, or every red is FLAKE with an issue linked.
+
+Fork Actions are off by default. A push to a branch does not always start CI. Use `workflow_dispatch`.
+
+## What must be green to merge
+
+[`.github/MERGE-STANDARD.md`](.github/MERGE-STANDARD.md) is the list. `gate` plus `dco` is what the live ruleset requires. Bench, the full Windows install matrix, package-quality, break jobs, and CodeQL are the gaps that document names.
 
 Other useful scripts: `pnpm format` / `pnpm format:check` (Prettier), `pnpm knip` (unused files, exports, dependencies), and `pnpm bench` — the benchmark harness, which is **research, not a gate** (see [`bench/README.md`](bench/README.md)).
 
@@ -224,6 +247,13 @@ For anything non-trivial, **open an issue first** so we can agree on the approac
 
 - **A reply to a claim or a question within a day, and a first review within two days.** If a PR has waited longer, say so on it; that is on us, not you.
 - **CI on a pull request takes about ten minutes.** The slowest suites (the benchmark, Windows unit tests, the full Windows install matrix) run in the merge queue and nightly instead, so a PR you can act on is not held up by a job you cannot.
+
+> Correction (2026-10-11): bench does not run in the merge queue until VE is green on three consecutive fork dispatch runs. The queue runs no Windows install cells. Windows unit tests run on a PR when Windows-sensitive source changed.
+
+## Agent skills for contributors
+
+Contributor (not user) skills live in [`.claude/skills/`](.claude/skills/) and are listed in [`AGENTS.md`](AGENTS.md). The public user skill is still root [`SKILL.md`](SKILL.md). Do not add contributor skills under `skills/`.
+
 - **Once it is approved, the merge queue lands it.** You do not need to keep rebasing while it waits.
 
 ### AI-assisted contributions
