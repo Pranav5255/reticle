@@ -62,6 +62,7 @@ jobs:
   # broken typecheck fails the expensive job anyway, a few minutes later, while `verify` fails it in
   # parallel regardless. `gate` still requires the full `verify`, so nothing merges without it.
   format-check:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -90,6 +91,7 @@ jobs:
       # can disagree with itself; `changelog-policy` is in `gate`'s needs, so nothing is lost.
 
   verify:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     # The only job that was missing a cap, and the only one that has ever hung. On the v2.5.0 merge
     # every test PASSED in 2m17s and then one vitest process never exited; the job sat there for 36
@@ -146,6 +148,7 @@ jobs:
   # The unit suite, in parallel with verify's static checks rather than after them. It was ~4.5 of
   # verify's ~8 minutes, and nothing in it depends on lint or typecheck having run first.
   unit-tests:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -263,6 +266,7 @@ jobs:
   # `pnpm typecheck` is deliberately NOT here. Types are platform-independent; `verify` already
   # answers it and answered it every one of those 10 times.
   macos:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -398,6 +402,7 @@ jobs:
   # none of which an advisory scan needs, and a vulnerable dependency is a different answer from a
   # broken build — worth reading off a separate line.
   rust-audit:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -540,6 +545,7 @@ jobs:
   # flag comes back true and every tier runs. The failure mode of guessing wrong here is a skipped
   # gate on a PR that needed it, so the safe direction is to run too much.
   changes:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -684,6 +690,7 @@ jobs:
   # Seconds, no browser, no servers: it is a schema check plus the validator's own self-check, which
   # runs first because a validator that has never refused anything is not a validator.
   matrix-records:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -911,25 +918,33 @@ jobs:
       - name: Integration suite (real-Chromium BrowserPool tests)
         if: matrix.shard == '1/3'
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2; do
             echo "::group::integration attempt $attempt"
             if pnpm test:integration; then echo "::endgroup::"; exit 0; fi
             echo "::endgroup::"
-            echo "::warning::integration attempt $attempt failed"
+            if ! node scripts/ci/flaky-expiry.mjs --allows integration; then
+              echo "unquarantined red — not retried"; exit 1
+            fi
+            [ "$attempt" -eq 1 ] || { echo "quarantined red after retry"; exit 1; }
+            echo "::warning::integration quarantined; retrying once"
             mkdir -p "artifacts/attempt-${attempt}"
             cp /tmp/e2e-*.log "artifacts/attempt-${attempt}/" 2>/dev/null || true
             echo "attempt $attempt failed — cleaning up before retry"
             pkill -f "cli.js mcp" || true; pkill -f "cli.js _daemon" || true; pkill -f chrome-headless || true
             sleep 3
           done
-          echo "integration suite failed after 3 attempts"; exit 1
+          echo "integration suite failed after retry"; exit 1
       - name: Run e2e battery (boots api+demo+next-smoke, drives Reticle headless)
         run: |
           for attempt in 1 2; do
             echo "::group::e2e attempt $attempt"
             if pnpm --filter @reticlehq/e2e --fail-if-no-match run e2e:ci; then echo "::endgroup::"; exit 0; fi
             echo "::endgroup::"
-            echo "::warning::e2e attempt $attempt failed"
+            if ! node scripts/ci/flaky-expiry.mjs --allows e2e; then
+              echo "unquarantined red — not retried"; exit 1
+            fi
+            [ "$attempt" -eq 1 ] || { echo "quarantined red after retry"; exit 1; }
+            echo "::warning::e2e quarantined; retrying once"
             mkdir -p "artifacts/attempt-${attempt}"
             cp /tmp/e2e-*.log "artifacts/attempt-${attempt}/" 2>/dev/null || true
             echo "attempt $attempt failed — cleaning up before retry"
@@ -1348,7 +1363,7 @@ jobs:
 
   # Schedule only. A red nightly used to sit unnoticed. Not in `gate`: it cannot fail a PR.
   nightly-watch:
-    if: github.event_name == 'schedule' && always()
+    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'reticlehq/reticle')) && always()
     runs-on: ubuntu-latest
     needs: [gate]
     timeout-minutes: 5
@@ -1424,7 +1439,7 @@ jobs:
         break-matrix,
         package-quality,
       ]
-    if: always()
+    if: always() && (github.event_name != 'schedule' || github.repository == 'reticlehq/reticle')
     timeout-minutes: 5
     steps:
       - name: Every gate either passed or was not needed
