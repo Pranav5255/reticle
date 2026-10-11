@@ -82,3 +82,25 @@ Contributor diversity and maintenance checks reflect real project participation 
 - [ ] Record remaining limitations rather than promising a score before the scan completes.
 
 Check definitions evolve: consult the [official Scorecard criteria](https://github.com/ossf/scorecard/blob/main/docs/checks.md) alongside the version reported by the actual scan.
+
+## Live ruleset as of 2026-10-10
+
+Source: `gh api repos/reticlehq/reticle/rules/branches/main` (ruleset id 24031565, name `main`).
+
+- Required checks: `gate`, `dco`.
+- Merge queue: squash. `bypass_actors` is empty, so a red `gate` blocks everyone, including admins.
+- `required_approving_review_count`: 0.
+- `package-quality`, `break-gates`, and `analyze (javascript-typescript)` are not required.
+- `package-quality.yml` and `break-gates.yml` have no `merge_group` trigger (those jobs now also live in `ci.yml`).
+
+## Proposed ruleset changes
+
+Tied to MERGE-STANDARD.md. The maintainer applies this. This file does not.
+
+1. Keep `gate` and `dco`.
+2. Add `analyze (javascript-typescript)` (CodeQL already has `merge_group`).
+3. Require 1 approving review.
+4. Require code-owner review.
+5. Require conversation resolution.
+6. Do not add check names `package-quality` or `break-gates`. Those jobs run inside `gate` now.
+7. No further required checks until bench is green on main and each Windows install cell that will sit in the queue has three consecutive green nightlies.
