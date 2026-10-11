@@ -37,8 +37,6 @@ const PR_JOBS_OUTSIDE_THE_AGGREGATE: Record<string, string> = {
   'codeql.yml': 'security scan -- only blocks if branch protection requires it',
   'dco.yml': 'sign-off check on contributions',
   'labeler.yml': 'adds labels; nothing depends on it passing',
-  'package-quality.yml': 'publint / are-the-types-wrong / SDK size budget',
-  'break-gates.yml': 'the install-path gates',
   'dependabot-auto-merge.yml':
     'not a gate: enables auto-merge on Dependabot patch/minor PRs, which the queue still gates',
   'welcome.yml': 'not a gate: greets a first issue or PR',
@@ -55,6 +53,8 @@ const OUTSIDE_THE_AGGREGATE: Record<string, string> = {
   // ever failing -- the verdict it asks for lives in the other repo's run, not in this one. Nothing
   // about this PR is unproven if it does not fire.
   'fixtures-dispatch': 'notifies another repo; non-fatal by design, and never runs on a PR',
+  'nightly-watch':
+    'schedule only; opens or comments on the nightly-red issue. Cannot fail a PR (skipped on every PR).',
 };
 
 /** Every top-level job name in the workflow, in file order. */

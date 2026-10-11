@@ -1,0 +1,9 @@
+---
+description: This checkout is a local/fork-only Reticle tree
+alwaysApply: true
+---
+
+# Fork only, no froncort in branch names
+
+- Push and open PRs only against `origin` (`Pranav5255/reticle`). Never push to `upstream` (`reticlehq/reticle`). Never open a PR against `reticlehq/reticle`. Never dispatch `publish.yml` or `publish-crate.yml`.
+- Branch names must not contain `froncort`. Use `feature-pranav/<slug>`.

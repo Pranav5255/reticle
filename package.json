@@ -53,7 +53,7 @@
     "matrix:validate": "node apps/e2e/matrix.mjs --self-check && for f in docs/matrix/*/*.json; do node apps/e2e/matrix.mjs --validate \"$f\" || exit 1; done",
     "matrix:compat": "node apps/e2e/client-compat.mjs",
     "knip": "npx --yes knip --no-progress",
-    "hooks:install": "ln -sf ../../pre-commit.sh .git/hooks/pre-commit && ln -sf ../../prepare-commit-msg.sh .git/hooks/prepare-commit-msg && echo \"pre-commit + sign-off hooks installed\"",
+    "hooks:install": "ln -sf ../../pre-commit.sh .git/hooks/pre-commit && ln -sf ../../prepare-commit-msg.sh .git/hooks/prepare-commit-msg && ln -sf ../../pre-push.sh .git/hooks/pre-push && echo \"pre-commit + sign-off + pre-push hooks installed\"",
     "check:stale-issues": "node scripts/check-stale-issues.mjs",
     "check:stale-issues:self-test": "node scripts/check-stale-issues.mjs --self-test",
     "check:pending-release": "node scripts/check-pending-release.mjs",

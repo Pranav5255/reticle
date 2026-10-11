@@ -15,11 +15,24 @@ Closes #
 <!-- Tick the fast gate, plus any tier your change needs. Full map: docs/gates.md.
      CI runs everything regardless — this just tells the reviewer what you already know is green. -->
 
+> Correction (2026-10-10): CI is path-routed. Tick what you ran. A skipped job in `gate` is not a run.
+
 - [ ] `pnpm lint && pnpm typecheck && pnpm test:unit` (~2 min — **always**)
 - [ ] `pnpm test:e2e` (~8 min) — _touched the tool surface, `core`, an observer, or telemetry_
 - [ ] `pnpm gate:install` (~15 min) — _touched `reticle init`, `vite-plugin`, `next`, or `babel-plugin`_
 - [ ] `pnpm test:e2e:desktop` (~3 min) — _touched `adapters/realm/electron`, `adapters/realm/tauri`, or desktop capture_
 - [ ] None of the above tiers apply to this change
+
+## Qualification evidence
+
+- Final SHA:
+- Fork `workflow_dispatch` URL (or `NOT RUN` and why):
+- Ledger rows (gate, attempt, exit, result, class):
+- Gates NOT RUN and why:
+
+- [ ] `pnpm verify` on the final SHA
+- [ ] fork `workflow_dispatch` green on the final SHA (or every red classified, with an issue linked)
+- [ ] no field telemetry numbers in this PR
 
 ## Checklist
 

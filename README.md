@@ -564,6 +564,9 @@ Reticle is built in the open, and the people using it decide what gets built nex
 
 - **[💬 Discord](https://discord.gg/BwAbzv9ZRz)** is where it happens: what's being built, what's up for grabs, design calls before they land, and help when you're stuck. Come say what you're verifying.
 - **Contribute.** Start with a [good first issue](https://github.com/reticlehq/reticle/labels/good%20first%20issue) or [help wanted](https://github.com/reticlehq/reticle/labels/help%20wanted), and read [CONTRIBUTING.md](CONTRIBUTING.md). Every PR runs the full gate in CI.
+
+> Correction (2026-10-10): every PR runs the gates its diff routes to; see [`.github/MERGE-STANDARD.md`](.github/MERGE-STANDARD.md).
+
 - **Ideas and questions:** [GitHub Discussions](https://github.com/reticlehq/reticle/discussions). **Bugs:** [issues](https://github.com/reticlehq/reticle/issues), or `reticle feedback "what happened"` from your terminal.
 - **Talk to us:** stuck on setup, or want to walk through your use case? [Book a call with the founders](https://calendar.app.google/h9NRDbBBQetyTzWM6).
 - **Security issue?** Follow [SECURITY.md](SECURITY.md); please don't open a public issue.
