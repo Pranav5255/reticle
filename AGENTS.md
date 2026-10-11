@@ -21,7 +21,7 @@ The public user skill is still root `SKILL.md`. Do not put contributor skills in
 
 - New workspace package or `package.json` / `pnpm-workspace.yaml`: `wire-into-gates`.
 - Edit under `.github/workflows/`: `edit-ci-workflow`.
-- `git push` or `gh pr create`: `qualify-before-pr`. The ledger must have rows for HEAD.
+- `git push` or `gh pr create`: `qualify-before-pr`. The PR body needs evidence for HEAD.
 - Red CI: `triage-ci-red`.
 - Docs vs live CI: `gate-drift-audit`.
 - Loosening a gate: `weaken-a-gate-safely`.

@@ -87,7 +87,7 @@ Everything here is published to [docs.reticle.sh](https://docs.reticle.sh) by `d
 | Page | What it answers |
 | --- | --- |
 | [gates.md](gates.md) | **I changed some files. Which gate do I run?** |
-| [pre-pr-qualification.md](pre-pr-qualification.md) | fork dispatch, local command table, and ledger row before an upstream PR |
+| [pre-pr-qualification.md](pre-pr-qualification.md) | the local commands and the fork run to do before a pull request |
 | [gate-plan.md](gate-plan.md) | why the gates are shaped this way, and what is still unbuilt |
 | [required-checks.md](required-checks.md) | which checks actually block a merge, and which only look like they do |
 | [adapters.md](adapters.md) | what an adapter is, the three kinds, and how to write one |

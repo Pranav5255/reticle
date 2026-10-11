@@ -79,7 +79,19 @@ jobs:
       - run: pnpm format:check
       # Workflow `needs:` typos and expired flake skips. Cheap, no build, fail-closed.
       - run: node scripts/ci/workflow-needs-exist.mjs --self-test && node scripts/ci/workflow-needs-exist.mjs
-      - run: node scripts/ci/flaky-expiry.mjs --self-test && node scripts/ci/flaky-expiry.mjs
+      # An expired entry fails the nightly, a manual run, or a PR that edits flaky.json; on any
+      # other PR it is a warning, so a date alone never turns an unrelated PR red.
+      - name: Flake quarantine is current
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          node scripts/ci/flaky-expiry.mjs --self-test
+          touched=""
+          if [ -n "$BASE" ] && git diff --name-only "$BASE" HEAD | grep -qx '.github/flaky.json'; then
+            touched="--touched"
+          fi
+          node scripts/ci/flaky-expiry.mjs --event "$EVENT" $touched
       - run: node scripts/ci/root-scripts-in-ci.mjs --self-test && node scripts/ci/root-scripts-in-ci.mjs
       # The changelog rule lives in the `changelog-policy` job, NOT here.
       #
@@ -931,7 +943,18 @@ jobs:
             cp /tmp/e2e-*.log "artifacts/attempt-${attempt}/" 2>/dev/null || true
             echo "attempt $attempt failed — cleaning up before retry"
             pkill -f "cli.js mcp" || true; pkill -f "cli.js _daemon" || true; pkill -f chrome-headless || true
-            sleep 3
+            # Wait for the suite's own ports (test/global-setup.ts) rather than a flat sleep, for the
+            # reason the e2e step below gives: a signal does not free a socket synchronously.
+            waited=0
+            while [ "$waited" -lt 30 ]; do
+              busy=""
+              for port in 15400 5301 5302 5303 5304; do
+                if lsof -ti "tcp:$port" -sTCP:LISTEN >/dev/null 2>&1; then busy="$busy $port"; fi
+              done
+              [ -z "$busy" ] && break
+              echo "waiting for ports to close:$busy"
+              sleep 1; waited=$((waited + 1))
+            done
           done
           echo "integration suite failed after retry"; exit 1
       - name: Run e2e battery (boots api+demo+next-smoke, drives Reticle headless)
@@ -1253,11 +1276,10 @@ jobs:
       - name: the launchers are pure ASCII
         shell: bash
         run: |
-          for f in install/install.sh install/install.ps1; do
-            if LC_ALL=C grep -qP '[^\x00-\x7F]' "$f"; then
-              echo "$f contains non-ASCII bytes:"; LC_ALL=C grep -nP '[^\x00-\x7F]' "$f"; exit 1
-            fi
-          done
+          # perl, not `grep -P`: macOS grep has no -P, and its usage error read as "no match", so
+          # the macOS cell passed whatever the launchers contained.
+          LC_ALL=C perl -ne 'if (/[^\x00-\x7F]/) { print "$ARGV:$.: non-ASCII: $_"; $bad = 1 } close ARGV if eof; END { exit($bad ? 1 : 0) }' \
+            install/install.sh install/install.ps1
 
   early-gates:
     needs: [format-check, changes]
@@ -1361,13 +1383,18 @@ jobs:
       - name: Published package size budgets
         run: node scripts/check-pack-size.mjs
 
-  # Schedule only. A red nightly used to sit unnoticed. Not in `gate`: it cannot fail a PR.
+  # The nightly on reticlehq/reticle, or a manual dispatch on main. A red nightly used to sit
+  # unnoticed. A dispatch from a feature ref never reaches here, so trying a branch does not open
+  # the issue. Not in `gate`: it cannot fail a PR.
   nightly-watch:
-    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'reticlehq/reticle')) && always()
+    if: >-
+      always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'reticlehq/reticle'))
     runs-on: ubuntu-latest
     needs: [gate]
     timeout-minutes: 5
     permissions:
+      contents: read
+      actions: read
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1384,11 +1411,13 @@ jobs:
             success|skipped) echo "gate $GATE"; extra="" ;;
             *) extra="gate=$GATE" ;;
           esac
-          failed_jobs=$(gh run view "${{ github.run_id }}" --json jobs --jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | .name] | join(", ")' || true)
+          # Only COMPLETED jobs. This job is still running when it asks, so its own conclusion is
+          # empty, and counting it made every nightly look red.
+          failed_jobs=$(gh run view "${{ github.run_id }}" --json jobs --jq '[.jobs[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .name != "nightly-watch") | .name] | join(", ")' || true)
           [ -z "$extra" ] && [ -z "$failed_jobs" ] && { echo "nightly green"; exit 0; }
           title='Nightly CI is red'
           existing=$(gh issue list --search "$title in:title" --state open --json number --jq '.[0].number')
-          body="Scheduled run ${{ github.run_id }} on ${{ github.sha }} reported a failure.
+          body="${{ github.event_name }} run ${{ github.run_id }} on ${{ github.sha }} reported a failure.
           gate: $GATE
           failed jobs: ${failed_jobs:-none listed}
           ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

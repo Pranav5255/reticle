@@ -11,6 +11,6 @@ if printf '%s' "$input" | grep -Eq 'package\.json|pnpm-workspace\.yaml|adapters/
   echo "Load .claude/skills/wire-into-gates/SKILL.md"
 fi
 if [ -n "${cmd}" ]; then
-  echo "Load .claude/skills/qualify-before-pr/SKILL.md; the ledger must have rows for HEAD"
+  echo "Load .claude/skills/qualify-before-pr/SKILL.md; the PR body needs evidence for HEAD"
 fi
 exit 0

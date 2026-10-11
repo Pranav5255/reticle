@@ -91,11 +91,9 @@ This is **one git repo** at the root (pnpm + turbo monorepo). The TS library pac
 
 **Run it as `pnpm verify`, not as four separate lines.** The `&&` is what makes a failure stop the run: pasted as separate commands, or chained with newlines, only the LAST one decides the exit code, so a red `lint` in the middle reports success. That is not hypothetical — it happened while writing this line, and the "all green" it produced was a lint error in code written seconds earlier.
 
-`format:check` is first because it is the one CI enforces that **`pnpm lint` does not run**. This checklist omitted it until 2.6.0, which is exactly how a release branch with all four heavy gates green locally still turned CI's `verify` red on six prettier warnings — and `verify` is a dependency of `e2e`, `desktop-e2e` and `install-gate`, so one unformatted file skips every expensive gate behind it. `pnpm format` writes the fixes.
+`format:check` is first because it is the one CI enforces that **`pnpm lint` does not run**. This checklist omitted it until 2.6.0, which is exactly how a release branch with all four heavy gates green locally still turned CI's `verify` red on six prettier warnings — and `format-check` is a dependency of `e2e`, `desktop-e2e` and `install-packages`, so one unformatted file skips every expensive gate behind it. `pnpm format` writes the fixes.
 
-> Correction (2026-10-10): the expensive jobs now depend on `format-check`, not `verify`. `gate` still requires the full `verify` job.
-
-Before opening a PR to upstream, run the fork qualification in [`docs/pre-pr-qualification.md`](docs/pre-pr-qualification.md); a claim of green cites a ledger row.
+Before opening a PR to upstream, run the fork qualification in [`docs/pre-pr-qualification.md`](docs/pre-pr-qualification.md); a claim of green cites the command, the SHA, and the log or run URL.
 
 Changing what CI must check? Load `.claude/skills/wire-into-gates/SKILL.md`. Editing a workflow? Load `.claude/skills/edit-ci-workflow/SKILL.md`. The table of contributor skills is in [`AGENTS.md`](AGENTS.md).
 

@@ -5,7 +5,7 @@ description: Use before opening any PR, or claiming a branch is green.
 
 # Qualify before a PR
 
-Follow the tiers in `docs/pre-pr-qualification.md`. A claim of green needs ledger rows for the final SHA.
+Follow the steps in `docs/pre-pr-qualification.md`. A claim of green needs evidence (command, SHA, log or run URL) for the final SHA.
 
 1. Run the local commands that apply to the diff (`pnpm verify` at minimum).
 2. Dispatch CI on the repo that will merge the PR: `gh workflow run ci.yml --ref <branch>`.

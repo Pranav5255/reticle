@@ -5,7 +5,7 @@ description: Use when adding a workspace package, adapter, MCP tool, CLI command
 
 # Wire the change into the gates
 
-Follow the verification loop in `AGENTS.md` (STATE, RUN, CAPTURE, CHECK, COMPARE, RECORD, RE-CHECK). A claim of green needs a ledger row for the final SHA.
+Follow the verification loop in `AGENTS.md` (STATE, RUN, CAPTURE, CHECK, COMPARE, RECORD, RE-CHECK). A claim of green needs evidence (command, SHA, log or run URL) for the final SHA.
 
 1. **Routing.** Add the package to `scripts/ci/tier-map.json` and confirm `scripts/ci/changes.mjs` routes a sample file from it to those tiers. A non-package path needs a pattern in `scripts/ci/tier-patterns.json`. A path that matches no tier, or a package missing from the map, turns every tier on.
 2. **Aggregate.** A new job is in `gate.needs` in `.github/workflows/ci.yml`, runs on `pull_request` and `merge_group` (parity with push-to-main), and is listed by `ci-gate-completeness` / `ci-aggregate-covers-jobs`. Gate-machinery edits need code-owner review.

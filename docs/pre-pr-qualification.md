@@ -1,22 +1,20 @@
 ---
 title: Qualify a pull request on your fork
-description: The local commands, fork dispatch, and ledger row that must exist before a PR to upstream is opened.
+description: The local commands and the fork run that should exist before a pull request is opened.
 ---
 
-This is the contributor workflow for every pull request to `reticlehq/reticle`. The routing table that says which extra gate a diff needs lives in [gates.md](./gates.md) section 1. This page is the procedure around that table: how to run every gate that applies, how to record the result, and when the claim of green is allowed.
-
-Before opening a PR to upstream, run this page. A claim of green cites a ledger row.
+This is the contributor workflow for every pull request to `reticlehq/reticle`. The routing table that says which extra gate a diff needs lives in [gates.md](./gates.md) section 1. This page is the procedure around that table: how to run every gate that applies, how to show the result, and when a claim of green is allowed.
 
 ## The verification loop
 
-No sentence in a ledger entry, commit, PR, or chat message may state a result this loop has not produced.
+No sentence in a commit, a PR, or a review reply should state a result this loop has not produced.
 
 1. State the claim as a falsifiable sentence (`pnpm test:e2e` passes on this SHA on macOS arm64).
 2. Run the exact command. Never a paraphrase.
 3. Capture command, `git rev-parse HEAD`, `git status --porcelain` (empty or listed), OS/arch, start/end time, exit code, and a log under `artifacts/gate-runs/<gate>-<sha>-<n>.log`.
 4. Read the exit code and the tail of the log. A zero exit with "0 tests", "skipped", "NOT MEASURED", "no files", or a missing summary is not a pass. Chained commands must use `&&`.
 5. Compare. If the evidence does not support the claim, rewrite the claim or mark it UNVERIFIED.
-6. Record the row. Only then may the claim be repeated, and it must link the row.
+6. Write it down with its evidence (the command, the SHA, the log or run URL). Only then repeat the claim.
 7. Re-check before reuse. Any claim older than the last commit, rebase, or dependency change is STALE.
 
 Wording: a run you did not watch is UNVERIFIED, not "should pass". A gate you could not run on this OS is `NOT RUN (reason)`, not "N/A".
@@ -25,12 +23,12 @@ Wording: a run you did not watch is UNVERIFIED, not "should pass". A gate you co
 
 1. Branch from fresh upstream main: `git fetch upstream && git switch -c <type>/<slug> upstream/main`.
 2. TDD (CLAUDE.md rule 5). Run `pnpm verify` before every commit, never after it.
-3. **Tier A, always local:** L1, L2 or `pnpm verify`, L3, L5, and L16 from the table below.
-4. **Tier B, local, routed by the files touched:** use [gates.md](./gates.md) section 1. If unsure, or if the path matches no row, run them all.
-5. **Tier C, fork qualification, required for any change outside `docs/` and `*.md`:** push the branch to your fork, then `gh workflow run ci.yml -R <you>/reticle --ref <branch>`. Wait for every job. Re-run a red job once to classify it. Never fix a red by re-running.
-6. Put the SHA, the fork run URL, and the ledger rows in the PR body. Any NOT RUN gate must give its reason.
-7. After a rebase or any new commit, Tier A and the fork run are stale. Repeat steps 3 to 6 on the final SHA.
-8. Open the upstream PR only when Tier C is fully green, or every red is classified FLAKE with an existing issue linked.
+3. **Always, locally:** L1, L2 (or at least `pnpm verify`), L3, L5, and L16 from the table below.
+4. **Locally, by what you changed:** use [gates.md](./gates.md) section 1. If unsure, or if the path matches no row, run them all.
+5. **On your fork, for any change outside `docs/` and `*.md`:** push the branch to your fork, then `gh workflow run ci.yml -R <you>/reticle --ref <branch>`. Wait for every job. Re-run a red job once to classify it. Never fix a red by re-running.
+6. Put the SHA, the fork run URL, and what you ran in the PR body. A gate you did not run says `NOT RUN` and why.
+7. After a rebase or any new commit, the local checks and the fork run are stale. Repeat steps 3 to 6 on the final SHA.
+8. Open the PR when the fork run is green, or every red is classified FLAKE with an existing issue linked.
 
 `workflow_dispatch` on `ci.yml` sets every tier to true (13 Linux and 13 Windows install cells, bench, windows, rust, desktop). That is the only way to run Windows, Linux-native clippy, and `install.ps1` parse from a fork. Never dispatch `publish.yml` or `publish-crate.yml` on a fork.
 
@@ -60,13 +58,7 @@ Set `RETICLE_TELEMETRY=0` and `CI=true` (not `CI=1`: Tauri's CLI rejects a non-b
 | L14 | package-quality | the publint and attw loops in `package-quality.yml`, then `pnpm check:pack-size` |  |
 | L15 | break | `sh -n install/install.sh`; ASCII check; the three `init` refusal steps in `ci.yml` `early-gates`; `node break/break-matrix.mjs` |  |
 | L16 | dco / changelog-policy | `git rev-list --no-merges upstream/main..HEAD` has sign-off; `CHANGELOG.md` is not in the diff |  |
-| L17 | bench | `pnpm bench:full && pnpm bench:gate` | after merge CI uses `--full`; the queue uses replay-only `pnpm bench && pnpm bench:gate` |
-
-## Ledger row
-
-```
-| date | sha | os/arch | where (local/fork run URL) | gate | exact command | attempt | exit | result (PASS/FAIL/FLAKE/NOT RUN) | class | log path | note |
-```
+| L17 | bench | `pnpm bench:full && pnpm bench:gate` | CI runs it after merge and nightly; it is quarantined from the queue in `.github/flaky.json` |
 
 ## Red classes
 
