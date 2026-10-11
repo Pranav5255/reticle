@@ -133,7 +133,8 @@ const find = (ev) => captured.filter((e) => e.event === ev);
 
 // ── 1. CLI command + flags ────────────────────────────────────────────────────
 reportCliRun(['status', '--port', '9000', '--http-token', 'SUPERSECRET']);
-await settle();
+// Detached like init_completed, so the same bounded wait for arrival rather than a quiet window.
+await settle(() => find('cli_command_run').length >= 1);
 {
   const e = find('cli_command_run')[0];
   check('cli_command_run fires', e !== undefined);
@@ -436,7 +437,10 @@ await settle();
 
 // ── 4e. Onboarding funnel ─────────────────────────────────────────────────────
 reportInitOutcome({ ok: false, reason: InitFailure.DEPENDENCY_INSTALL, stack: 'next', mcpRegistered: false });
-await settle();
+// init_completed is sent DETACHED (a child process does the POST), so it lands after the quiet
+// window under load: red on a CI shard, green on the same commit's next run. Wait for it, bounded
+// by SETTLE_CAP_MS, as the runtime_crashed section does.
+await settle(() => find('init_completed').length >= 1);
 {
   const i = find('init_completed')[0];
   check('init_completed fires — the onboarding funnel had NO instrumentation', i !== undefined);
