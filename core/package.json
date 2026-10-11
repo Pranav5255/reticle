@@ -8,7 +8,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "default": "./missing.js",
+      "import": "./missing.js"
     },
     "./telemetry": {
       "types": "./dist/telemetry-entry.d.ts",
