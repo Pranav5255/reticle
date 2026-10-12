@@ -513,7 +513,19 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-Linux-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-Linux-
-      - run: pnpm exec playwright install --with-deps chromium
+      # `--with-deps` runs apt-get on Linux, and an Ubuntu mirror that stopped answering has held this
+      # step until the job timed out, 45 minutes later (reticlehq/reticle job 113700317449, and again on
+      # a fork run). It normally finishes in well under four minutes. Bound it and try once more,
+      # announced: installing the browser is idempotent and no product code has run yet.
+      - id: browser
+        continue-on-error: true
+        timeout-minutes: 8
+        run: pnpm exec playwright install --with-deps chromium
+      - if: steps.browser.outcome == 'failure'
+        timeout-minutes: 8
+        run: |
+          echo "::warning::installing Chromium failed or hung on the first attempt; retrying once"
+          pnpm exec playwright install --with-deps chromium
       - run: pnpm test:smoke
       - name: Smoke evidence (including first failure)
         if: always()
@@ -875,7 +887,16 @@ jobs:
           path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-      - run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      # Bounded with one announced retry: see the first Chromium install step in this file.
+      - id: browser
+        continue-on-error: true
+        timeout-minutes: 8
+        run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      - if: steps.browser.outcome == 'failure'
+        timeout-minutes: 8
+        run: |
+          echo "::warning::installing Chromium failed or hung on the first attempt; retrying once"
+          pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
       # Angular 21's dependency tree crashes npm 10's installer ("Cannot read properties of null
       # (reading 'edgesOut')") during the scaffold's own install, before Reticle is involved;
       # reproduced locally with a fresh `ng new` on npm 10, and npm 11 installs it. Node 22 ships
@@ -975,7 +996,16 @@ jobs:
           path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-      - run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      # Bounded with one announced retry: see the first Chromium install step in this file.
+      - id: browser
+        continue-on-error: true
+        timeout-minutes: 8
+        run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      - if: steps.browser.outcome == 'failure'
+        timeout-minutes: 8
+        run: |
+          echo "::warning::installing Chromium failed or hung on the first attempt; retrying once"
+          pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
       # Headless Chromium + a multi-service boot flakes on shared runners (timing, resource
       # contention). Retry with a clean slate between attempts so a transient flake doesn't red CI;
       # a real regression still fails (it fails every attempt).
@@ -1143,7 +1173,16 @@ jobs:
           path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-      - run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      # Bounded with one announced retry: see the first Chromium install step in this file.
+      - id: browser
+        continue-on-error: true
+        timeout-minutes: 8
+        run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      - if: steps.browser.outcome == 'failure'
+        timeout-minutes: 8
+        run: |
+          echo "::warning::installing Chromium failed or hung on the first attempt; retrying once"
+          pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
       - run: pnpm build
       # FIRST, as the install gate's self-test is. It makes the subject answer "yes" to every
       # claim and requires the gate to go RED. If this step ever passes, the scored run below
@@ -1202,7 +1241,16 @@ jobs:
           path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-      - run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      # Bounded with one announced retry: see the first Chromium install step in this file.
+      - id: browser
+        continue-on-error: true
+        timeout-minutes: 8
+        run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      - if: steps.browser.outcome == 'failure'
+        timeout-minutes: 8
+        run: |
+          echo "::warning::installing Chromium failed or hung on the first attempt; retrying once"
+          pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
       # The token proxy is a python package, and without it `countTokensProxy` returns null for every
       # payload — so every token dimension reads "this pass measured nothing" and the gate fails
       # having compared nothing. That is the honest failure it is designed to produce, and it fails
