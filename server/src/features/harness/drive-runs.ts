@@ -17,8 +17,16 @@ export const DriveStatus = {
   DONE: 'done',
   STOPPED: 'stopped',
   BROKEN: 'broken',
+  /** Refused before it drove anything (switched off, no credits, locked): not a broken drive. */
+  REFUSED: 'refused',
 } as const;
 export type DriveStatus = (typeof DriveStatus)[keyof typeof DriveStatus];
+
+/**
+ * Thrown when the platform or the gate refuses a drive before it drives. Releasing a tab reported
+ * such a run as "broken", which reads as a fault in the Harness; a refusal is a refusal.
+ */
+export class DriveRefusedError extends Error {}
 
 /** Who asked for the drive. */
 export const DriveOrigin = { AGENT: 'agent', HUD: 'hud', CHAT: 'chat' } as const;
@@ -70,6 +78,7 @@ const byHarness = new Map<string, Entry>();
 /** One pending note per drive, latest state wins: what the agent has not heard yet. */
 const notes = new Map<string, string>();
 const changeListeners = new Set<(record: DriveRecord) => void>();
+const stepListeners = new Set<(record: DriveRecord) => void>();
 
 export interface StartDrive {
   harness: string;
@@ -119,7 +128,7 @@ export function startDrive(start: StartDrive): DriveRecord {
       (error: unknown) => {
         entry.record = {
           ...entry.record,
-          status: DriveStatus.BROKEN,
+          status: error instanceof DriveRefusedError ? DriveStatus.REFUSED : DriveStatus.BROKEN,
           error: error instanceof Error ? error.message : String(error),
         };
       },
@@ -213,6 +222,14 @@ export function noteDriveStep(harness: string, tool: string): void {
   entry.record.steps += 1;
   entry.record.lastLine = `step ${String(entry.record.steps)} · ${tool}`;
   changed(entry, false);
+  const record = { ...entry.record };
+  for (const listener of stepListeners) {
+    try {
+      listener(record);
+    } catch {
+      /* a listener never breaks the drive it listens to */
+    }
+  }
 }
 
 /** A line the drive narrated to the HUD. */
@@ -221,6 +238,12 @@ export function noteDriveLine(harness: string, line: string): void {
   if (entry === undefined) return;
   entry.record.lastLine = line;
   changed(entry, false);
+}
+
+/** Hear every step a drive takes, so a panel showing its count can repaint. Returns the unsubscribe. */
+export function onDriveStep(listener: (record: DriveRecord) => void): () => void {
+  stepListeners.add(listener);
+  return () => stepListeners.delete(listener);
 }
 
 /** Hear every drive start and end, from any origin. Returns the unsubscribe. */
@@ -266,11 +289,44 @@ function changed(entry: Entry, startOrEnd: boolean): void {
   }
 }
 
+/**
+ * How long one poll waits on a drive before answering `running`. Under the 60s tool timeout most
+ * MCP clients use, with room for the answer to travel; a poll's `wait` overrides it.
+ */
+export const POLL_WAIT_DEFAULT_S = 50;
+/** How much of a finished drive's own summary rides in the note: its first line, bounded. */
+const NOTE_SUMMARY_MAX = 200;
+
+/** The exact call that reads a drive: the same call while it runs and once it has ended. */
+export function pollCall(runId: string): string {
+  return `${ReticleTool.VERIFY} {action:"explore", runId:"${runId}"}`;
+}
+
+/** What a poll answering `running` tells the agent to do, so it stays rather than walks away. */
+export function stillRunning(runId: string, steps: number, elapsedS: number): string {
+  return (
+    `Still driving (${String(steps)} steps, ${String(elapsedS)}s). Call ${pollCall(runId)} again ` +
+    `now: it waits up to ${String(POLL_WAIT_DEFAULT_S)}s and answers the moment the drive ends. If ` +
+    `you stop polling, the drive keeps running and this runId still reads it.`
+  );
+}
+
+const FROM: Record<DriveOrigin, string> = {
+  [DriveOrigin.AGENT]: '',
+  [DriveOrigin.HUD]: ' (started from the HUD)',
+  [DriveOrigin.CHAT]: ' (started from the Reticle dashboard)',
+};
+
 function noteFor(record: DriveRecord): string {
-  const poll = `→ ${ReticleTool.VERIFY} {action:"explore", runId:"${record.harnessRun}"}`;
+  const id = record.harnessRun;
+  const tab = record.sessionId === undefined ? '' : ` on tab ${record.sessionId}`;
   if (DriveStatus.RUNNING === record.status)
-    return `harness drive ${record.harnessRun} running ${poll}`;
-  return `harness drive ${record.harnessRun} finished (${summaryOf(record)}) ${poll}`;
+    return (
+      `Harness drive ${id}${FROM[record.origin]} is running${tab}. Follow it: ${pollCall(id)}. ` +
+      `Each call waits up to ${String(POLL_WAIT_DEFAULT_S)}s and answers the moment it ends; if you ` +
+      `stop polling, the drive keeps running and this runId still reads it.`
+    );
+  return `Harness drive ${id}${FROM[record.origin]} finished (${summaryOf(record)}). Full result: ${pollCall(id)}.`;
 }
 
 function summaryOf(record: DriveRecord): string {
@@ -281,7 +337,10 @@ function summaryOf(record: DriveRecord): string {
     const n = (checks as Record<string, unknown>)[key];
     return String('number' === typeof n ? n : 0);
   };
-  return `${record.status}: ${count('held')} held, ${count('failed')} failed, ${count('undecided')} undecided`;
+  const said = record.result?.['summary'];
+  const first =
+    'string' === typeof said ? (said.split('\n')[0] ?? '').slice(0, NOTE_SUMMARY_MAX) : '';
+  return `${record.status}: ${count('held')} held, ${count('failed')} failed, ${count('undecided')} undecided${0 === first.length ? '' : `. ${first}`}`;
 }
 
 function prune(): void {
