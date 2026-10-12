@@ -1,0 +1,55 @@
+name: bench-probe
+on:
+  push:
+    branches: ['probe/**']
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
+        with:
+          path: .turbo
+          key: turbo-linux-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-linux-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-linux-
+      - run: pnpm build
+      # The browser download was never cached: ~20s on Linux and over five minutes on a Windows
+      # install cell, every run. `install` is still run after a hit, so a newer Playwright fetches
+      # its own revision and `--with-deps` still provisions the Linux system libraries.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
+        with:
+          path: ${{ runner.os == 'Windows' && '~\AppData\Local\ms-playwright' || '~/.cache/ms-playwright' }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+      - run: pnpm --filter @reticlehq/e2e --fail-if-no-match exec playwright install --with-deps chromium
+      # The token proxy is a python package, and without it `countTokensProxy` returns null for every
+      # payload — so every token dimension reads "this pass measured nothing" and the gate fails
+      # having compared nothing. That is the honest failure it is designed to produce, and it fails
+      # for a missing dependency rather than a regression, which is a slow way to learn this.
+      - name: Install the token proxy the observation layer measures with
+        run: python3 -m pip install --user --quiet --require-hashes -r bench/requirements.txt
+      - name: Measure (observation-cost + replay), so the gate has something real to grade
+        run: pnpm bench:full
+      - name: Benchmark gate (catch-rate floor, no false positives, efficiency and token bounds)
+        run: pnpm bench:gate || true
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bench-raw-${{ matrix.rep }}
+          path: bench/raw/
+          retention-days: 14
+
