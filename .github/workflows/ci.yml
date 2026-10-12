@@ -1269,8 +1269,14 @@ jobs:
           echo "See .changes/README.md. If this IS the release PR, branch from release/."
           exit 1
 
-  # Folded out of break-gates.yml so `init/**` and setup changes run the refusals, and so `gate`
-  # can need them. The standalone workflow keeps push-to-main only.
+  # The install path's own gates, on every OS it claims to support, folded out of the old
+  # break-gates.yml so `gate` can need them (#1514). Everything here drives the shipped CLI, or one
+  # of the two launchers a user actually pipes into a shell.
+  #
+  # The two launchers parse, on the shell that has to run them: a launcher that does not parse has
+  # no failure mode worth the name, it simply does nothing. install.ps1 was written with
+  # here-strings and typographic dashes and did exactly that -- Windows PowerShell reads a BOM-less
+  # .ps1 as ANSI, so the UTF-8 punctuation became mojibake and the file would not parse at all.
   launchers:
     needs: [changes]
     if: needs.changes.outputs.launchers == 'true'
@@ -1375,6 +1381,8 @@ jobs:
           out=$(node "$GITHUB_WORKSPACE/server/dist/command/cli.js" init --timeout 2 --no-open 2>&1 || true)
           echo "$out" | grep -q "rather than invent" || { echo "$out"; exit 1; }
 
+  # POSIX-only by construction: its scenarios build fake `node`/`npx`/`claude` shims as /bin/sh
+  # scripts. Windows coverage of the same refusals is `early-gates`.
   break-matrix:
     needs: [format-check, changes]
     if: needs.changes.outputs.break == 'true'

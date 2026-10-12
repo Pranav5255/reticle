@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The unpacked size of the two published packages a size change is felt in, against a ceiling.
 //
-// ONE implementation, run by `.github/workflows/package-quality.yml` and by hand
+// ONE implementation, run by the `package-quality` job in `.github/workflows/ci.yml` and by hand
 // (`pnpm build && pnpm check:pack-size`). It used to live only in that workflow, which no local
 // gate runs, so #1493 learned it had blown the server budget (6,608,861 > 6,600,000) from CI after
 // every local gate was green. Needs a built tree: `npm pack` runs each package's prepack.
