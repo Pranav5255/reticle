@@ -46,9 +46,9 @@ export const HumanControlKind = {
   /**
    * Human pressed Sign in in the panel. Carries nothing.
    *
-   * A page cannot write `~/.reticle`, so the panel used to copy `reticle login` and stop there: a
+   * A page cannot write `~/.reticle`, so the panel used to copy `reticle connect` and stop there: a
    * dead end for anybody who does not live in a terminal. The daemon owns the credential, so it
-   * starts the same browser approval flow `reticle login` does and the panel repaints when it lands.
+   * starts the same browser approval flow `reticle connect` does and the panel repaints when it lands.
    */
   SIGNIN: 'signin',
   /**
@@ -72,6 +72,12 @@ export const HumanControlKind = {
   HARNESS_RUN: 'harness-run',
   /** Human pressed Stop on the drive running in this tab. Carries nothing. */
   HARNESS_STOP: 'harness-stop',
+  /**
+   * Human pressed Link this project on the Harness page. Carries nothing: the daemon links the
+   * project of the tab that asked, as `reticle connect` would from that folder, and every panel
+   * repaints when the link file lands.
+   */
+  HARNESS_LINK: 'harness-link',
 } as const;
 export type HumanControlKind = (typeof HumanControlKind)[keyof typeof HumanControlKind];
 

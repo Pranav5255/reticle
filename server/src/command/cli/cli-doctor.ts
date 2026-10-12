@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { keychainNoteFor } from './doctor/doctor-signing-line.js';
 import { join } from 'node:path';
 import { devServersForProject, ReticleEnv } from '@reticlehq/core';
 import { readPid, reticleStateHome } from '@/command/daemon/daemon.js';
@@ -320,4 +321,6 @@ export async function handleDoctor(port: number): Promise<void> {
     // findings above exist to remove.
     line(doctorRow(DoctorRow.DESKTOP, '✓ desktop wiring looks right'));
   }
+  const keychain = keychainNoteFor({ read: readProjectFile });
+  if (keychain !== undefined) line(doctorRow(DoctorRow.DESKTOP, `⚠ ${keychain}`));
 }

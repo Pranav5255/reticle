@@ -9,7 +9,6 @@
  * Vercel-style split: `.reticle/cloud.json` is the safe-to-commit-but-gitignored binding, the key is a
  * user-level credential. "Cloud attached" = a valid link file AND a key for its project id (or env creds).
  */
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_PLATFORM_URL, ReticleDir, ReticleEnv } from '@reticlehq/core';
 import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
@@ -42,8 +41,19 @@ interface SyncPolicy {
    * the bug happen again, and a defect nobody else can reproduce is a defect nobody else can fix.
    */
   capsules: boolean;
+  /**
+   * Push each run's step screenshots after the run. Follows `runs` when the link does not say:
+   * a project that keeps its runs local has not agreed to send pictures of its pages either.
+   */
+  screenshots: boolean;
 }
-const DEFAULT_SYNC_POLICY: SyncPolicy = { runs: true, memory: true, flows: true, capsules: true };
+const DEFAULT_SYNC_POLICY: SyncPolicy = {
+  runs: true,
+  memory: true,
+  flows: true,
+  capsules: true,
+  screenshots: true,
+};
 
 /** Where a verification actually executes. Reserved for the hosted-runner path; default local. */
 export const VerifyMode = { LOCAL: 'local', SERVER: 'server' } as const;
@@ -56,8 +66,12 @@ export interface ProjectCloud {
   verify: VerifyMode;
   /** The cloud project id this project is linked to (for display/logging); null when env-fallback. */
   projectId: string | null;
+  /** The link as one key, cloud + workspace + project (`credentialSlot`); absent when env-fallback. */
+  link?: string;
   /** Why `config` is null, in words a person can act on. Absent when attached. */
   reason?: string;
+  /** Attached, but not with the key the caller exported: said, never silent. */
+  note?: string;
 }
 
 interface CloudLink {
@@ -98,6 +112,7 @@ function parseLink(raw: unknown): CloudLink | null {
       memory: asBool(sync.memory, DEFAULT_SYNC_POLICY.memory),
       flows: asBool(sync.flows, DEFAULT_SYNC_POLICY.flows),
       capsules: asBool(sync.capsules, DEFAULT_SYNC_POLICY.capsules),
+      screenshots: asBool(sync.screenshots, asBool(sync.runs, DEFAULT_SYNC_POLICY.screenshots)),
     },
     verify: o.verify === VerifyMode.SERVER ? VerifyMode.SERVER : VerifyMode.LOCAL,
   };
@@ -191,7 +206,7 @@ export async function resolveProjectCloud(
       verify: VerifyMode.LOCAL,
       projectId: null,
       ...(null === config
-        ? { reason: 'cloud not attached here: run `reticle link`, or set RETICLE_API_KEY' }
+        ? { reason: 'cloud not attached here: run `reticle connect`, or set RETICLE_API_KEY' }
         : {}),
     };
   }
@@ -200,6 +215,7 @@ export async function resolveProjectCloud(
     memory: link.sync.memory ?? DEFAULT_SYNC_POLICY.memory,
     flows: link.sync.flows ?? DEFAULT_SYNC_POLICY.flows,
     capsules: link.sync.capsules ?? DEFAULT_SYNC_POLICY.capsules,
+    screenshots: link.sync.screenshots ?? DEFAULT_SYNC_POLICY.screenshots,
   };
   const stored = credentialFor(
     await readJson(fs, join(homeDir, ReticleDir.ROOT, CREDENTIALS_FILE)),
@@ -224,16 +240,23 @@ export async function resolveProjectCloud(
       ? undefined
       : fromEnv !== null
         ? `this repo is linked to ${linkedUrl}, and RETICLE_API_KEY is set for ${fromEnv.url}: ` +
-          `set RETICLE_CLOUD_URL=${linkedUrl} to use that key here, or run \`reticle login\` for it`
+          `set RETICLE_CLOUD_URL=${linkedUrl} to use that key here, or run \`reticle connect\` for it`
         : `this repo is linked to ${linkedUrl}, and this machine has no key for it: run ` +
-          '`reticle login`, or set RETICLE_API_KEY' +
+          '`reticle connect`, or set RETICLE_API_KEY' +
           (DEFAULT_PLATFORM_URL === linkedUrl ? '' : ` with RETICLE_CLOUD_URL=${linkedUrl}`);
+  const note =
+    stored !== null && fromEnv !== null && fromEnv.apiKey !== stored
+      ? `RETICLE_API_KEY is set, but this repo uses the key \`reticle connect\` stored for it: ` +
+        'a stored key wins over the environment, so the exported key was not used'
+      : undefined;
   return {
     config,
     policy,
     verify: link.verify,
     projectId: link.projectId,
+    link: credentialSlot(link.url, link.projectId, link.orgId),
     ...(reason === undefined ? {} : { reason }),
+    ...(note === undefined ? {} : { note }),
   };
 }
 
@@ -247,8 +270,8 @@ export async function resolveProjectCloud(
  */
 export const linkedCloudPort =
   (fs: FileSystemPort, reticleRoot: string, homeDir: string, env: NodeJS.ProcessEnv) =>
-  async (): Promise<CloudConfig | null> =>
-    (await resolveProjectCloud(fs, reticleRoot, homeDir, env)).config;
+  async (root?: string): Promise<CloudConfig | null> =>
+    (await resolveProjectCloud(fs, root ?? reticleRoot, homeDir, env)).config;
 
 /**
  * The API key a tab's own project resolves to, so a credential is only ever used for its own tabs.
@@ -290,24 +313,3 @@ export const platformEnvPort =
       ? env
       : { ...env, [ReticleEnv.API_KEY]: config.apiKey, [ReticleEnv.CLOUD_URL]: config.url };
   };
-
-/**
- * Where this project's dashboard lives, if `reticle link` recorded one.
- *
- * Read from the link file rather than derived from the API url, because the API origin and the
- * console origin are different hosts in every deployment that is not a laptop. Synchronous and
- * best-effort, like every other read in this file: a missing or malformed link file means no link
- * in the HUD, never a failed tool call.
- */
-export function readDashboardUrl(reticleRoot: string): string | undefined {
-  try {
-    const raw: unknown = JSON.parse(
-      readFileSync(join(reticleRoot, ReticleDir.CLOUD_LINK_FILE), 'utf8'),
-    );
-    if ('object' !== typeof raw || null === raw) return undefined;
-    const value = (raw as Record<string, unknown>)['dashboardUrl'];
-    return 'string' === typeof value && value.length > 0 ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}

@@ -355,8 +355,46 @@ const DIST_ENTRY = join(PACKAGE_ROOT, 'dist', 'index.js');
  * "Measured, rounded up to the next hundred" left ~30 B of room, so every PR that added bytes had
  * to touch this constant and any two of them conflicted in the merge queue: #1479 and #1484 both
  * raised it on 2026-10-09. Measured 257,747 B on main after both landed; ceiling 258,747.
+ *
+ * The HUD round on feat/hud-clarity (Harness page and switch, the one-driver-per-log split that
+ * tags every narration with who sent it) measured 258,797 B; ceiling 259,797 by the convention.
+ *
+ * Step screenshots: 260,113 B. Not the renderer, which loads only when a picture is first drawn,
+ * but the run artifact's screenshot schemas, built at module scope in core's barrel (the channel
+ * the notes above name), and the one `render` command registration. Ceiling 261,113.
+ *
+ * Reading the page as a person reads it, from a persona drive where three goals the page plainly
+ * showed could not be proved: content below the fold of a scrolling main graded hidden, a phrase
+ * split across two flex items ("found by" / "CI") never matched, and the page tree dropped a
+ * sentence's inline `<code>`. All three are answered in the page, at read time. With them, the DOM
+ * observer's secret-field redaction (a typed password reached the session journal in clear) and the
+ * refusal to act inside a closing menu. Both branches together, measured after the merge:
+ * 262,750 B; ceiling 263,750 by the convention.
+ *
+ * The page saying which coverage markers its own elements carry (the `markers` command): the
+ * Harness gate refused a fully instrumented app at 75% because only an acted control could show
+ * them. Answered before the panel paints, so it cannot wait on a lazy chunk (which measured larger).
+ * 263,856 B; ceiling 264,856.
+ *
+ * The outward-action gate: a Harness click on Invite, Send, Remove, Pay… is refused unless the
+ * person's request asked for it (the Harness invited a stranger into a customer's workspace). It is
+ * judged at the click, so it cannot load later. 265,619 B; ceiling 266,619.
+ *
+ * A run pairs each screenshot with its check by the journal action both came from (an optional
+ * `actionId` on the core run schemas, which the page bundle carries with the rest of core): an
+ * issue lost its picture whenever one check in the run took none. 266,660 B; ceiling 267,660.
+ *
+ * Re-drive gaps: the run artifact's optional `agentClaim` (core's schema, built at module scope in
+ * the barrel) and an empty secret field reading empty rather than `[REDACTED]`. Merged with the
+ * line above, both together: 267,263 B; ceiling 268,263.
  */
-const MAX_FIRST_LOAD_BYTES = 258_747;
+/*
+ * Set 2026-10-12 by the founder's decision, as a budget for about a year of work rather than the
+ * measurement plus a sliver: it was re-raised dozens of times in a month, which made the check churn
+ * instead of a signal. Measured 267,263 B (every page that loads the SDK pays this, so the year budget is the tightest: ~27%) at 81e046201. Review it once a year, not per change; a
+ * sudden jump inside it is still worth a look in review.
+ */
+const MAX_FIRST_LOAD_BYTES = 340_000;
 /*
  * Raised 248_300 -> 248_400 for rail slide impressions: `HudUseData` gained an optional `slide`
  * string, its shape checked in the daemon where it is counted, as control ids already are. The

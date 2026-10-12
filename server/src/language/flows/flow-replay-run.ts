@@ -62,9 +62,14 @@ import type { DeviationReport } from '@/memory/journal/deviation-report.js';
 import { homedir } from 'node:os';
 import { cloudFetch, syncRunRecordToCloud, SyncOutcome } from '@/memory/cloud/cloud-sync.js';
 import { resolveProjectCloud } from '@/memory/cloud/cloud-config.js';
-import { memoryReadUrl, scopedMemoryEntries } from '@/memory/cloud/memory-scope.js';
+import {
+  memoryReadHeaders,
+  memoryReadUrl,
+  scopedMemoryEntries,
+} from '@/memory/cloud/memory-scope.js';
 import { consultSubjectFor, selectConsulted, type ConsultedMemory } from './flow-memory-consult.js';
 import { log } from '@/log.js';
+import { replayStepShooter } from '@/features/visual/step-shots.js';
 import type { ToolDeps } from '@/surface/tools/tool-kit.js';
 import { flowsForSession } from './flow-store-for-session.js';
 import { projectForRoot } from '@/memory/project/project-for-root.js';
@@ -83,7 +88,7 @@ export function latestRecordedFlow(
 }
 
 export { flowErrorMessage } from './flow-result.js';
-import { flowErrorMessage } from './flow-result.js';
+import { flowErrorMessage, noteReplayCheck } from './flow-result.js';
 
 /** Replay statuses that represent an actual recorded run in project.json. */
 type RecordedReplayStatus = Exclude<ReplayStatus, typeof ReplayStatus.UNVERIFIABLE>;
@@ -195,11 +200,7 @@ async function consultProjectMemory(
   const subject = consultSubjectFor(flow);
   if (subject === undefined) return undefined;
   try {
-    // The APP's root, not the daemon's. `deps.reticleRoot` is wherever the daemon was launched,
-    // which for a user-scoped MCP registration is almost never the project being verified — so the
-    // link file it reads is the wrong one, or absent, and every project silently reads as
-    // "not attached". Same class of bug as the flow store resolving per daemon instead of per
-    // session, and it is invisible: the feature simply never appears.
+    // The APP's root, not the daemon's (wherever it was launched): its link file is this project's.
     const cloud = await resolveProjectCloud(deps.fs, root, homedir(), process.env);
     if (null === cloud.config || !cloud.policy.memory) return undefined;
     // Scoped to the linked project. The key covers a whole workspace, so a read that named no
@@ -208,7 +209,7 @@ async function consultProjectMemory(
     const url = memoryReadUrl(cloud.config.url, { projectId: cloud.projectId, subject });
     const res = await cloudFetch(url, {
       method: 'GET',
-      headers: { authorization: `Bearer ${cloud.config.apiKey}` },
+      headers: memoryReadHeaders(cloud.config.apiKey),
     });
     if (200 !== res.status) return undefined;
     // `cloudFetch` hands back a real `Response`, so the body is a METHOD. Reading `res.json` as a
@@ -720,8 +721,8 @@ export async function replayNamedFlow(
       steps: [],
       unverifiable: {
         reason:
-          `this flow fills a redacted field and nothing supplied it, so nothing ran and nothing ` +
-          `was proved. Set ${names} in the environment the daemon runs in, then replay. Until then ` +
+          `this flow fills a redacted field and nothing supplied it, so nothing ran and nothing was ` +
+          `proved. Pass it with this call — secrets: { ${missing.map((each) => `"${each.field}": "…"`).join(', ')} } — or set ${names} where the daemon runs and restart it. Until then ` +
           `the value typed would be the placeholder itself, and any failure after it would be ` +
           `about this and not about the application.`,
       },
@@ -766,6 +767,7 @@ export async function replayNamedFlow(
         ...(continueAt === undefined ? {} : { at: continueAt }),
         // The HUD's replay chip, when the human pressed ▶. In-process only: an agent's arguments
         // arrive as JSON and can never carry a function.
+        onStepResult: replayStepShooter(deps, session.id),
         ...('function' === typeof args['onStep']
           ? { onStep: args['onStep'] as NonNullable<ReplayFromOptions['onStep']> }
           : {}),
@@ -776,7 +778,7 @@ export async function replayNamedFlow(
     return lostDocumentResult(name, error);
   }
   // Only part of the journey was driven here: its steps were checked, nothing about the whole flow.
-  if (continueAt !== undefined || (to !== undefined && to < loaded.value.steps.length))
+  if (0 < (continueAt ?? 0) || (to !== undefined && to < loaded.value.steps.length))
     return { name, status: partialStatus(steps), steps };
   // Computed HERE, before the synthetic success row is appended below: once that row is pushed,
   // `steps.length` no longer counts only the flow's own steps and the arithmetic is wrong.
@@ -890,13 +892,12 @@ export async function replayNamedFlow(
   const result: FlowReplayResult = { name, status, steps };
   if (halted !== undefined) result.halted = halted;
   if (knows !== undefined) result.knows = knows;
-  // A green that cannot go red is not a pass. `reticle_flow_verify` already refuses to count these,
-  // via this same function -- a single-flow caller saw a bare `ok` and had no way to learn the flow
-  // asserts nothing. Derived from the same helper on purpose: two copies of this judgement would
-  // drift, and the sibling tools would then disagree about the same flow.
+  // A green that cannot go red is not a pass: the same judgement `reticle_flow_verify` makes.
   const cannotFail =
     status === ReplayStatus.OK ? unverifiableReason(loaded.value, invokedFlows) : undefined;
   if (cannotFail !== undefined) result.unverifiable = { reason: cannotFail };
+  // One check of the session that ran it, so its end does not say "nothing was checked".
+  noteReplayCheck(session, name, status, cannotFail !== undefined);
   if (status !== ReplayStatus.OK)
     result.decision = buildDecision(result, loaded.value, intentSaid, invokedFlows);
   applyStartPathHint(result, startPathHint);

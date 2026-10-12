@@ -17,13 +17,13 @@ Settings → Rules → Rulesets, or Settings → Branches:
 - [x] Require a pull request before merging. (The `main` ruleset carries a `pull_request` rule with zero required approvals, until an independent reviewer exists.)
 - [ ] Require at least one approving review from another maintainer once an independent reviewer is available.
 - [ ] Dismiss stale approvals when new commits are pushed; require code-owner review.
-- [ ] Require status checks and up-to-date branches. Include `gate` (the CI aggregate), `package-quality`, and the exact CodeQL matrix check name reported by GitHub, currently expected to be `analyze (javascript-typescript)`. Preserve other required checks.
+- [ ] Require status checks and up-to-date branches. Include `gate` (the CI aggregate) and `dco`. `package-quality` is a job inside `gate` now, not a check of its own. Preserve other required checks.
 - [ ] Require conversation resolution.
 - [x] Block force pushes and branch deletion.
 - [x] Enforce protection for administrators and remove routine bypasses. (The `main` ruleset has no bypass actors.)
 - [x] If a merge queue is enabled, ensure every required workflow runs on `merge_group` before requiring it in the queue. (CodeQL now runs on `merge_group`; require its check only after that has landed.)
 
-`verify` alone does not enforce unit tests, e2e, Rust, desktop, and the other jobs included in `gate`. Package quality and CodeQL run in separate workflows and must be required separately.
+`verify` alone does not enforce unit tests, e2e, Rust, desktop, and the other jobs included in `gate`. Package quality and the break gates run inside `ci.yml` and are covered by `gate`; CodeQL runs in its own workflow.
 
 Code-Review examines recent merge history, so enabling a rule does not repair earlier unreviewed merges. This repo's CODEOWNERS currently names one maintainer. Recruit an independent co-maintainer for reviews; another account controlled by the author and bot approvals do not supply independent human review. Until a reviewer is available, retain the CI protections and accept the review-score limitation rather than blocking all maintainer PRs.
 
