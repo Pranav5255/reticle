@@ -20,6 +20,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REPO_ROOT } from '@/machine/repo-root.js';
 
@@ -149,7 +151,12 @@ describe('a process the command leaves behind does not hold the step open', () =
 
   it('returns the exit code once the command exits, keeping the output it wrote', async () => {
     const { runOnce } = await load();
-    const result = await runOnce(process.execPath, ['-e', LEAVES_ONE_BEHIND]);
+    // From a file, not `-e`: on Windows the wrapper runs through cmd.exe, which ends a multi-line
+    // argument at its first newline.
+    const dir = mkdtempSync(join(tmpdir(), 'ci-run-'));
+    const script = join(dir, 'leaves-one-behind.cjs');
+    writeFileSync(script, LEAVES_ONE_BEHIND);
+    const result = await runOnce(process.execPath, [script]);
     const pid = Number(/grandchild (\d+)/.exec(result.output)?.[1]);
     try {
       expect(result.code).toBe(0);
@@ -162,6 +169,7 @@ describe('a process the command leaves behind does not hold the step open', () =
           // already gone
         }
       }
+      rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000); // A bound on a hang, not a duration assertion: before the fix this waited the full 120 s.
 });
