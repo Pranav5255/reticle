@@ -856,14 +856,32 @@ async function sessionsOn(port) {
   }
 }
 
-/** Answers at all, polled: a server that is up but busy compiling gets the whole bound. */
+/**
+ * Answers at all, polled: a server that is up but busy compiling gets the whole bound.
+ *
+ * Each attempt used to be cut off at 1.5s, so a page whose first render took longer than that never
+ * counted, however long the bound. On a loaded Windows runner the sveltekit negative control failed
+ * "init's dev server still answers after init exited" with a server that was up: its log showed no
+ * error, the session reconnected, and the same url answered a minute later (upstream run
+ * 38235070888). Every abandoned request also kept rendering, which loaded the runner further. Now
+ * one request may use the whole remaining budget, and `why` says what the last attempt got.
+ */
 async function answersWithin(url, ms) {
   const deadline = Date.now() + ms;
+  let why = 'no attempt';
   while (Date.now() < deadline) {
-    if (await reachable(url)) return true;
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      });
+      if (res.status < 500) return { ok: true, why: '' };
+      why = `status ${String(res.status)}`;
+    } catch (err) {
+      why = String(err?.cause?.code ?? err?.name ?? err);
+    }
     await sleep(500);
   }
-  return false;
+  return { ok: false, why };
 }
 
 /**
@@ -1424,10 +1442,13 @@ async function driveScaffold(scaffold, index) {
     transport = watchTransport(bridgePort);
 
     // ── 6. the handed-over server, after init has exited, in a real browser ─────────────────────
+    const handedOver =
+      appUrl === undefined ? { ok: false, why: '' } : await answersWithin(appUrl, HANDOVER_ANSWER_MS);
     chk(
       "init's dev server still answers after init exited",
-      appUrl !== undefined && (await answersWithin(appUrl, HANDOVER_ANSWER_MS)),
-      `${String(appUrl)}${devLogPath === undefined ? ' (init named no dev-server log)' : ''}`,
+      handedOver.ok,
+      `${String(appUrl)}${devLogPath === undefined ? ' (init named no dev-server log)' : ''}` +
+        `${handedOver.ok || '' === handedOver.why ? '' : ` (last attempt: ${handedOver.why})`}`,
     );
 
     const { chromium } = await import('playwright');
@@ -1580,7 +1601,9 @@ async function driveScaffold(scaffold, index) {
     );
     chk(
       '  and still answers after a source edit',
-      edited !== undefined && appUrl !== undefined && (await answersWithin(appUrl, HANDOVER_ANSWER_MS)),
+      edited !== undefined &&
+        appUrl !== undefined &&
+        (await answersWithin(appUrl, HANDOVER_ANSWER_MS)).ok,
       edited === undefined
         ? `none of ${EDIT_CANDIDATES.join(', ')} exists in this scaffold`
         : `edited ${edited}; log tail: ${devLog().slice(-200).replace(/\s+/g, ' ')}`,
