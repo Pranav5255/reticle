@@ -322,7 +322,7 @@ process.on('SIGTERM', () => {
 });
 process.on('exit', teardownFixtures);
 
-const scripts = [...(FULL ? OBSERVATION_PASS : []), ...REPLAY_PASS];
+const scripts = ['bench/harness/run-observation.mjs'];
 console.log(
   `bench-all: ${FULL ? 'observation-cost + replay passes' : 'replay pass only (pass --full for observation-cost)'}`,
 );

@@ -70,13 +70,36 @@ export class PlaywrightAdapter {
     await sleep(800);
   }
   async clickTestid(id, desc) {
-    return rec(
-      'browser_click',
-      await this.c.callTool('browser_click', {
-        element: desc ?? id,
-        target: `[data-testid="${id}"]`,
-      }),
-    );
+    try {
+      return rec(
+        'browser_click',
+        await this.c.callTool('browser_click', {
+          element: desc ?? id,
+          target: `[data-testid="${id}"]`,
+        }),
+      );
+    } catch (e) {
+      console.log('PROBE click failed', id, String(e).slice(0, 200));
+      try {
+        const snap = await this.c.callTool('browser_snapshot', {});
+        console.log('PROBE snapshot:\n' + (snap.text ?? '').slice(0, 6000));
+      } catch (e2) { console.log('PROBE snapshot failed', String(e2)); }
+      try {
+        const ev = await this.c.callTool('browser_evaluate', { function: '() => location.href + " | " + document.body.innerText.slice(0, 1500)' });
+        console.log('PROBE eval:', (ev.text ?? '').slice(0, 2500));
+      } catch (e3) { console.log('PROBE eval failed', String(e3)); }
+      try {
+        const base = new URL(this.url).origin;
+        for (const path of ['/src/views/Diagnostics.tsx']) {
+          const t = await (await fetch(base + path)).text();
+          console.log('PROBE served', path, 'has fault-timeout:', t.includes('fault-timeout'));
+        }
+        const fs = await import('node:fs');
+        const disk = fs.readFileSync('apps/bench-app/src/views/Diagnostics.tsx', 'utf8');
+        console.log('PROBE disk has fault-timeout:', disk.includes('fault-timeout'));
+      } catch (e4) { console.log('PROBE served failed', String(e4)); }
+      throw e;
+    }
   }
   /** Type a value into a field the negative cases must really submit. */
   async fillTestid(id, value) {
