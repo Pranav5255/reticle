@@ -348,8 +348,13 @@ describe('handing the dev server over', () => {
            i += 1;
            process.stdout.write('line ' + i + '\\n');
            // Publish a complete beat: a reader of writeFileSync's target can catch it truncated.
-           fs.writeFileSync(beat + '.next', String(i));
-           fs.renameSync(beat + '.next', beat);
+           // On Windows the rename fails with EPERM while the test has the beat open, and a throw
+           // here killed the server, so the beat froze and the test blamed the handover. Skip the
+           // beat; the next tick publishes a later one.
+           try {
+             fs.writeFileSync(beat + '.next', String(i));
+             fs.renameSync(beat + '.next', beat);
+           } catch {}
          }, 20);`,
     );
     const script = `
@@ -414,8 +419,24 @@ describe('handing the dev server over', () => {
           /* already gone, which is the failure this test reports */
         }
       }
-      // Windows holds the log open for a moment after the kill: EBUSY, retried rather than thrown.
-      rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+      // `taskkill` returns before Windows has released the tree's handles on its cwd and its log,
+      // and ten rmSync retries still met EBUSY on a runner (`rmdir ...\Temp\handover-*`) after
+      // every assertion above had passed. Wait for the server to stop beating, bounded, so the
+      // kill has actually landed; then clean up best effort. A temp directory the OS is still
+      // holding says nothing about the handover, so it must not fail the test.
+      const settled = Date.now() + 5_000;
+      let last = beatNow();
+      while (Date.now() < settled) {
+        await sleep(100);
+        const next = beatNow();
+        if (next === last) break;
+        last = next;
+      }
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+      } catch {
+        /* EBUSY from a handle Windows has not released yet; the OS reclaims the temp dir */
+      }
     }
   }, 20_000);
 });

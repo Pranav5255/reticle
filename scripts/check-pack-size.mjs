@@ -71,8 +71,20 @@ const HEADROOM_BYTES = 100_000;
  *
  * 1,380,000 -> 1,473,686 on 2026-10-09: measured 1,373,686 on main at c02824992, 6KB under the
  * old ceiling, plus HEADROOM_BYTES.
+ *
+ * 1,473,686 -> 1,576,245 on 2026-10-12 for 3.7.0: measured 1,476,245 on feat/hud-clarity at
+ * 37872425b, plus HEADROOM_BYTES. The ~100KB since 10-09 is the release's own SDK code: the
+ * in-page step screenshot, secret-field redaction in the DOM observer, and the HUD's in-place
+ * update (no flicker), platform sync rows and team link. Nothing packed by accident (no tests,
+ * maps or images in the tarball).
  */
-const BROWSER_MAX_BYTES = 1_473_686;
+/*
+ * Set 2026-10-12 by the founder's decision, as a budget for about a year of work rather than the
+ * measurement plus a sliver: it was re-raised dozens of times in a month, which made the check churn
+ * instead of a signal. Measured 1,488,024 B at 81e046201. Review it once a year, not per change; a
+ * sudden jump inside it is still worth a look in review.
+ */
+const BROWSER_MAX_BYTES = 2_200_000;
 
 /*
  * The other package a size change is felt in, and it had no ceiling at all.
@@ -166,8 +178,27 @@ const BROWSER_MAX_BYTES = 1_473_686;
  *
  * 6,800,000 -> 6,722,559 on 2026-10-09, DOWN, to the convention above: measured 6,622,559 on main
  * at c02824992, plus HEADROOM_BYTES.
+ *
+ * 6,722,559 -> 6,999,341 on 2026-10-12 for 3.7.0: measured 6,899,341 on feat/hud-clarity at
+ * 37872425b, plus HEADROOM_BYTES. The ~277KB since 10-09 is the release's features: step
+ * screenshots and their upload, the exploratory Harness (map, hunt, two-way disparity), saved
+ * plans run replay-first, the Reticle result block, the platform memory/flow round trip and the
+ * per-call replay secrets. Checked the tarball: no tests, maps or images; one 3KB docs YAML.
+ *
+ * 6,999,341 -> 7,142,601 on 2026-10-12 for 3.7.0: measured 7,042,601 on feat/hud-clarity after merging
+ * feat/agent-experience, plus HEADROOM_BYTES. The ~143KB since the last raise is the release's own
+ * fixes from the 25-persona drive (outward-action guard, per-link sync record, journey goals, per-call
+ * secrets, workspace choice on connect, refusal reasons) and the agent-experience lane (the compact
+ * envelope, once-per-session notices, the resume block and the rules-file primer; its agent/ folder is
+ * ~44KB). Checked the tarball: no tests, maps or images; the one docs YAML as before.
  */
-const SERVER_MAX_BYTES = 6_722_559;
+/*
+ * Set 2026-10-12 by the founder's decision, as a budget for about a year of work rather than the
+ * measurement plus a sliver: it was re-raised dozens of times in a month, which made the check churn
+ * instead of a signal. Measured 7,096,212 B at 81e046201. Review it once a year, not per change; a
+ * sudden jump inside it is still worth a look in review.
+ */
+const SERVER_MAX_BYTES = 11_000_000;
 
 const BUDGETS = [
   { name: '@reticlehq/browser', dir: 'adapters/realm/browser', max: BROWSER_MAX_BYTES },

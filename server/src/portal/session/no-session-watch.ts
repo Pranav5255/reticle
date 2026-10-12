@@ -20,7 +20,7 @@ import { callingClientDirectory } from '@/hooks/client-directory.js';
 import { registeredElsewhere } from '@/memory/recall/registered-projects.js';
 import { explainNoSession } from './no-session-diagnosis.js';
 import type { NoSessionFacts } from './no-session-diagnosis.js';
-import { detectDevCommandInProject } from './dev-server/dev-command.js';
+import { detectDevCommandInProject, initCommandIn } from './dev-server/dev-command.js';
 import { nextActionFor, portOfUrl, renderNextAction } from './no-session-next-action.js';
 import type { NoSessionNextAction } from './no-session-next-action.js';
 import {
@@ -366,7 +366,9 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
   };
 
   const refresh = (): void => {
-    // Nothing to diagnose while a session is live, and no reason to scan.
+    // Nothing to diagnose while a session is live, and no reason to scan. What the last scan saw
+    // predates this session, so it is no observation of where the session goes on to depart from.
+    if (options.sessions.count() > 0) probed = new Set();
     if (running || options.sessions.count() > 0) return;
     running = true;
     const candidates = scanPorts();
@@ -456,9 +458,17 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
   const diagnosisFor = (dir: string): { facts: NoSessionFacts; next: NoSessionNextAction } => {
     const projectId = readProjectId(dir);
     const initialized = projectId !== undefined;
-    const known = projectId === undefined ? undefined : options.sessions.lastKnownFor?.(projectId);
+    // A tab that reported no project cannot be another project's: it is the daemon's own last tab,
+    // never "this daemon has never seen one" beside a refusal that names where it last saw it. A
+    // tab that named another project stays that project's (a second app is not told to reopen it).
+    const newest = options.sessions.lastKnown?.();
+    const unclaimed = newest !== undefined && newest.projectId === undefined ? newest : undefined;
+    const known =
+      (projectId === undefined ? undefined : options.sessions.lastKnownFor?.(projectId)) ??
+      unclaimed;
     const everConnected =
-      projectId !== undefined && true === options.sessions.everConnectedTo?.(projectId);
+      (projectId !== undefined && true === options.sessions.everConnectedTo?.(projectId)) ||
+      unclaimed !== undefined;
     const ownPorts = new Set(
       devServersForProject(readDevServers(stateDir), { projectId, root: dir }).map(
         (entry) => entry.port,
@@ -557,6 +567,7 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
             ...(known.departedTo === undefined ? {} : { departedTo: known.departedTo }),
           }),
       dev: detectDevCommandInProject(dir),
+      init: initCommandIn(dir),
     });
     return { facts, next };
   };
@@ -569,6 +580,19 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
     const caller = callingClientDirectory();
     if (caller === undefined) return undefined;
     return diagnosisFor(caller);
+  };
+
+  /**
+   * `listening`, plus the departed session's port when no scan has looked at it since: not looked
+   * at is not stopped. Without it `reticle status` called a running Vite stopped because the only
+   * scan ran before the app was started.
+   */
+  const observedListening = (): readonly number[] => {
+    const known = options.sessions.lastKnown?.();
+    const port = known === undefined ? undefined : portOfUrl(known.url);
+    return port === undefined || probed.has(port) || listening.includes(port)
+      ? listening
+      : [...listening, port];
   };
 
   const nextAction = (scope: ProjectScopeFacts): NoSessionNextAction => {
@@ -587,7 +611,7 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
         return refused === undefined ? {} : { helloRefused: refused.reason };
       })(),
       ...(split === undefined ? {} : { splitBrain: split }),
-      listening,
+      listening: observedListening(),
       slowListeners,
       // The url the departed tab was on — the same tombstone the prose diagnosis quotes, so the
       // command and the sentence beside it name the same page.
@@ -602,6 +626,8 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
       // Read when asked, like everything else here: a `package.json` can gain a dev script, and a
       // daemon that cached "there is none" at boot would keep saying so for the rest of the day.
       dev: detectDevCommandInProject(directory),
+      // This project's own runner and app folder, so the agent can wire it itself.
+      init: initCommandIn(directory),
     });
   };
 
@@ -626,7 +652,7 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
       // framework and its projectId, and whose real problem was a dev server older than the plugin.
       // The boot value still counts: it is the one the daemon scoped its sessions with.
       ...scope,
-      listening,
+      listening: observedListening(),
       slowListeners,
       port: options.port,
       // The directory `initialized` was decided in. Named in the message because "there is no
