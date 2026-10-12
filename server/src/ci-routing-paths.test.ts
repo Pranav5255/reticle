@@ -260,6 +260,16 @@ describe('CI routing decisions', () => {
     expect(route(['init/src/run.ts']).break).toBe('true');
   });
 
+  it('leaves install, desktop and bench to the narrow patterns for a package change', () => {
+    // The tier map only adds e2e and windows. A browser SDK file outside the desktop-only list
+    // must not turn desktop on, or most PRs pay for the slowest job in ci.yml.
+    expect(route(['adapters/realm/browser/src/index.ts'])).toMatchObject({
+      e2e: 'true',
+      windows: 'true',
+      desktop: 'false',
+    });
+  });
+
   it('does not lose a matching file at the start of a large merge-group diff', () => {
     const paths = [
       'core/src/index.ts',
