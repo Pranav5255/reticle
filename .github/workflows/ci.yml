@@ -550,6 +550,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       windows: ${{ steps.filter.outputs.windows }}
       break: ${{ steps.filter.outputs.break }}
+      launchers: ${{ steps.filter.outputs.launchers }}
       # WHICH scaffolds run on WHICH os, decided per event rather than hard-coded in the matrix.
       install_matrix: ${{ steps.install_matrix.outputs.value }}
     steps:
@@ -561,7 +562,7 @@ jobs:
           # Full qualification must also work when manually dispatched on a feature branch.
           case "${{ github.event_name }}" in
             schedule|workflow_dispatch)
-              for tier in install gateself desktop bench conformance rust e2e windows break; do
+              for tier in install gateself desktop bench conformance rust e2e windows break launchers; do
                 echo "$tier=true" >> "$GITHUB_OUTPUT"
               done
               exit 0
@@ -593,7 +594,8 @@ jobs:
             echo "rust=true" >> "$GITHUB_OUTPUT"
             echo "e2e=true" >> "$GITHUB_OUTPUT"
             echo "windows=true" >> "$GITHUB_OUTPUT"
-            echo "break=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "break=true" >> "$GITHUB_OUTPUT"
+            echo "launchers=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           CHANGED="$(git diff --name-only "$BASE"...HEAD || true)"
           # Still fails OPEN. A base that resolves but produces nothing — a force-push, an empty
@@ -609,7 +611,8 @@ jobs:
             echo "rust=true" >> "$GITHUB_OUTPUT"
             echo "e2e=true" >> "$GITHUB_OUTPUT"
             echo "windows=true" >> "$GITHUB_OUTPUT"
-            echo "break=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "break=true" >> "$GITHUB_OUTPUT"
+            echo "launchers=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "changed files:"; echo "$CHANGED" | sed 's/^/  /'
           # What each tier in scripts/ci/tier-patterns.json is for. The regexes moved there; the
@@ -675,8 +678,11 @@ jobs:
           # Both Rust compile jobs run for crate changes. JS/docs cannot change this standalone
           # Cargo tree; scheduled/manual runs still exercise it through the full-tier fallback.
           #
-          # `break`: init, setup, install and break/ -- the paths the launcher, early-gate and
-          # break-matrix jobs exercise.
+          # `break`: init, setup, install and break/ -- the paths the early-gate and break-matrix
+          # jobs exercise.
+          #
+          # `launchers`: install/ only. The job runs the two launchers, which install the PUBLISHED
+          # CLI from npm, so a server or init change cannot change its answer.
           #
           # Path routing lives in scripts/ci/changes.mjs. A changed path that matches no tier and
           # is not docs-only turns EVERY tier on: a new adapters/realm/* used to look routed and
@@ -1267,7 +1273,7 @@ jobs:
   # can need them. The standalone workflow keeps push-to-main only.
   launchers:
     needs: [changes]
-    if: needs.changes.outputs.break == 'true'
+    if: needs.changes.outputs.launchers == 'true'
     strategy:
       fail-fast: false
       matrix:

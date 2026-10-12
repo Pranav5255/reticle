@@ -253,11 +253,18 @@ describe('CI routing decisions', () => {
       desktop: 'true',
       rust: 'true',
       break: 'true',
+      launchers: 'true',
     });
   });
 
   it('runs break jobs when init changes', () => {
     expect(route(['init/src/run.ts']).break).toBe('true');
+  });
+
+  it('runs the launchers for install/ and not for a server change', () => {
+    // The launchers install the PUBLISHED CLI from npm; a server edit cannot change their answer.
+    expect(route(['install/install.sh']).launchers).toBe('true');
+    expect(route(['server/src/command/cli/setup-mcp-cli.ts']).launchers).toBe('false');
   });
 
   it('leaves install, desktop and bench to the narrow patterns for a package change', () => {

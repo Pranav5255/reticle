@@ -88,7 +88,8 @@ Which means a gate skipped locally can also be skipped in CI, if what you change
 | `install-packages` and `install-gate` | installation paths, CLI setup, build adapters, browser SDK, dependency graph, or gate machinery. A PR runs three Linux scaffolds and vite-react on Windows; the queue runs all thirteen on Linux; nightly/manual runs all thirteen on both OSes. One prepack produces the same tarballs for all cells |
 | the install gate's self-test | gate machinery changes, nightly, and manual runs. `--with-self-test` shares one registry publish across the control and positive phases |
 | `desktop-e2e` | only when desktop code changed |
-| `launchers`, `early-gates` and `break-matrix` | a change to `init/`, `server/` (the package that ships the CLI), `install/` or `break/`; nightly and on demand. The launchers parse and are pure ASCII on Linux, macOS and Windows; the shipped CLI's first-run refusals; the hostile-environment matrix |
+| `early-gates` and `break-matrix` | a change to `init/`, `server/src/command/cli/`, `server/src/command/setup/`, `install/` or `break/`; nightly and on demand. The shipped CLI's first-run refusals on Linux, macOS and Windows; the hostile-environment matrix |
+| `launchers` | a change to `install/`; nightly and on demand. Both launchers parse, are pure ASCII, and install the published CLI on Linux, macOS and Windows (PowerShell 5.1 and 7) |
 | `package-quality` | always: publint, are-the-types-wrong and the pack-size budgets for every published package |
 | `bench` | after merge: on a push to main when something that could move the numbers changed, nightly, and on demand. It is ~19 minutes, a contributor cannot act on a token regression, and a red main run names the commit before any release |
 
