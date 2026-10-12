@@ -22,10 +22,11 @@ Set these as required status checks on the default branch:
 | check | what it is | what merges without it |
 | --- | --- | --- |
 | `gate` | every job in `ci.yml`: build, tests, e2e, desktop, install, Rust, Windows, macOS, bench, package quality, the break gates | a red build of any kind (bench and the Windows install cells run only after merge) |
-| `analyze (javascript-typescript)` | CodeQL security scan; runs on `merge_group` | a flagged vulnerability |
 | `dco` | contributions are signed off | an unsigned contribution |
 
 package-quality and the break gates (`launchers`, `early-gates`, `break-matrix`) run as jobs inside `ci.yml` and are covered by `gate`. They used to be separate workflows with no `merge_group` trigger, so requiring them by name would have stalled the queue.
+
+CodeQL (`analyze (javascript-typescript)`) runs on pull requests and in the merge queue, but the ruleset does not require it, so a flagged vulnerability is reported rather than blocked.
 
 `labeler`, `welcome` and `dependabot-auto-merge` are deliberately absent. They label a pull request, greet a first contribution, and turn on auto-merge for Dependabot updates the queue still gates; there is no result to block on.
 
