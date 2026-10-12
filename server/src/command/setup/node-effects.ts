@@ -197,8 +197,21 @@ export class OwnedDevServer {
   }
 }
 
-function run(file: string, args: string[]): string {
-  const r = spawnSync(file, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+/**
+ * How long one process-listing command may take. `init` calls these on every dev-server poll, and
+ * spawnSync blocks the event loop: with no bound, one stalled WMI query on a Windows install cell
+ * froze `init` silently for nine and a half minutes, until the gate killed it.
+ */
+const RUN_TIMEOUT_MS = 15_000;
+
+/** Run a command and return what it printed, or '' if it failed to finish within `timeoutMs`. */
+export function run(file: string, args: string[], timeoutMs = RUN_TIMEOUT_MS): string {
+  const r = spawnSync(file, args, {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: timeoutMs,
+  });
+  if (undefined !== r.error) return '';
   return r.stdout ?? '';
 }
 
