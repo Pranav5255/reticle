@@ -1577,10 +1577,23 @@ async function driveScaffold(scaffold, index) {
         timeout_ms: 5000,
       }), true);
       chk('the installed SDK answers a true assertion over MCP', true);
-      requireVerdict(await call('reticle_act_and_wait', {
+      const acted = await call('reticle_act_and_wait', {
         sessionId, action: 'click', target: { testid: INSTALL_PROBE_TESTID },
         until: { kind: 'text', contains: 'Reticle install probe clicked' }, timeout_ms: 5000,
-      }), true);
+      });
+      // `unknown` is not a pass and not a failure: the wait could not be judged, which on a loaded
+      // Windows runner is a starved tab, not a broken install (next-pages-router, upstream run
+      // 38041305928, whose reason this gate cut off). The click was still sent, so its consequence
+      // must then be PROVEN by a separate assertion. A `no` is never retried.
+      if ('unknown' === acted?.verified) {
+        note(`act_and_wait could not judge its wait, re-asserting the consequence: ${JSON.stringify(acted)}`);
+        requireAssertion(await call('reticle_assert', {
+          sessionId, predicate: { kind: 'text', contains: 'Reticle install probe clicked' },
+          timeout_ms: 5000,
+        }), true);
+      } else {
+        requireVerdict(acted, true);
+      }
       chk('an MCP action changes the installed page',
         await page.getByTestId(INSTALL_PROBE_TESTID).textContent() === 'Reticle install probe clicked');
       requireAssertion(await call('reticle_assert', {
@@ -1627,7 +1640,7 @@ async function driveScaffold(scaffold, index) {
 
     if (SELF_TEST) chk('the negative control intercepted a Reticle socket', blockedConnections > 0);
   } catch (err) {
-    chk('the scaffold ran to completion', false, String(err).slice(0, 300));
+    chk('the scaffold ran to completion', false, String(err).slice(0, 2000));
   } finally {
     transport?.stop();
     await client?.stop();
