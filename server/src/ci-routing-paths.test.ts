@@ -192,7 +192,9 @@ describe('the CI router only names paths that exist', () => {
   });
 });
 
-// Execute the router script. A large diff must not drop a matching file at the start.
+// Execute the router script. Incident #1514: a path no rule matched turned the expensive tiers
+// OFF, so a new adapters/realm/* ran almost nothing before merge. A large diff must not drop a
+// matching file at the start either.
 describe('CI routing decisions', () => {
   const route = (paths: string[]): Record<string, string> => {
     const temporary = mkdtempSync(join(tmpdir(), 'reticle-ci-routing-'));

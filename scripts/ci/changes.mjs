@@ -1,11 +1,15 @@
 /**
  * Path router for ci.yml `changes`.
  *
- * Incident: a new `adapters/realm/<name>/` matched the coarse `adapters/` allowlist so the
- * fail-safe stayed off, while desktop/bench/conformance never turned on. Nightlies on main
- * then ran jobs the PR never ran. Fail-safe is "matched no tier and is not docs-only".
- * Workspace packages also contribute the tiers in tier-map.json. A package.json whose name
- * is missing from that map turns every tier on.
+ * Incident #1514: a changed path that no rule in ci.yml's inline `changes` step matched turned
+ * the expensive tiers OFF, and `gate` counts a skip as green -- a new `adapters/realm/<name>/`
+ * matched the coarse `adapters/` allowlist while desktop/bench/conformance never turned on.
+ * Fail-safe is now "matched no tier and is not docs-only": every tier on.
+ *
+ * Workspace packages add only `e2e` and `windows` from tier-map.json. install, desktop, bench,
+ * conformance, gateself, break and launchers come from the narrow regexes in tier-patterns.json
+ * alone. A package.json whose name is missing from the map turns every tier on, as does any
+ * edit under .github/workflows/ or scripts/ci/.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
