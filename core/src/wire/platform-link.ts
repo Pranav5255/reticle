@@ -75,6 +75,7 @@ export const SpecIgnoredReason = {
 export type SpecIgnoredReason = (typeof SpecIgnoredReason)[keyof typeof SpecIgnoredReason];
 
 const PERSONA_MAX = 2_000;
+const PLAN_ID_MAX = 128;
 const STEPS_MAX = 500;
 
 /** Each field of a spec, validated on its own so one bad field never costs the others. */
@@ -89,6 +90,8 @@ const SPEC_FIELDS = {
   persona: z.string().min(1).max(PERSONA_MAX),
   maxSteps: z.number().int().min(1).max(STEPS_MAX),
   record: z.boolean(),
+  plan: z.string().min(1).max(PLAN_ID_MAX),
+  confirmDangerous: z.boolean(),
 } as const;
 
 export interface DriveSpec {
@@ -101,6 +104,14 @@ export interface DriveSpec {
   maxSteps?: number;
   /** Whether pictures of the page may leave the machine. */
   record?: boolean;
+  /** A plan the platform saved: run it as it stands instead of asking for a new one. */
+  plan?: string;
+  /**
+   * A person started this run (Run plan, Re-verify, Run suite) and so acknowledged the saved flows'
+   * own destructive steps: their replays may take them. A fresh action the model decides keeps the
+   * guard whatever this says.
+   */
+  confirmDangerous?: boolean;
 }
 
 export interface SpecIgnored {
@@ -279,6 +290,12 @@ export const LinkReportKey = {
   GAPS: 'gaps',
   /** Per app: the framework adapters its page announced. */
   ADAPTERS: 'adapters',
+  /**
+   * Per app: coverage capabilities that do not apply to it (`CoverageCapability` values, see
+   * `NotApplicableSchema`), excluded from both sides of the coverage score. Always sent, empty when
+   * every capability applies.
+   */
+  NOT_APPLICABLE: 'notApplicable',
   /** Top level: dev servers listening on this machine that no Reticle page has connected from. */
   DEV_SERVERS: 'devServers',
   /** Top level: the last page handshake this daemon refused, and why. */
@@ -316,6 +333,8 @@ export interface LinkUnsyncedRoot {
   root: string;
   runs: number;
   linked: boolean;
+  /** The project the folder belongs to, so a board lists only its own. Absent when none is named. */
+  projectId?: string;
 }
 
 /**
@@ -330,3 +349,9 @@ export const CoverageMarker = {
   TESTID: 'testid',
 } as const;
 export type CoverageMarker = (typeof CoverageMarker)[keyof typeof CoverageMarker];
+
+/**
+ * The file:line capability's name (`CoverageCapability.SOURCE_MAPPING` is this). Here, beside the
+ * markers, so a page can say it does not apply without loading the coverage rules into first load.
+ */
+export const SOURCE_MAPPING_CAPABILITY = 'file:line source mapping';

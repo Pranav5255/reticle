@@ -1294,6 +1294,42 @@ jobs:
           # the macOS cell passed whatever the launchers contained.
           LC_ALL=C perl -ne 'if (/[^\x00-\x7F]/) { print "$ARGV:$.: non-ASCII: $_"; $bad = 1 } close ARGV if eof; END { exit($bad ? 1 : 0) }' \
             install/install.sh install/install.ps1
+      # Executed, not only parsed: nothing ran either launcher on the OS it is for, and the
+      # PowerShell one has OS-only traps (native stderr under 5.1, .cmd shims, a stale PATH) that a
+      # parse cannot see. It installs the PUBLISHED CLI from npm, so this proves the launcher's own
+      # logic and wording, never this checkout's CLI. The runners' system Node keeps a root-owned
+      # global folder on Linux, which is the EACCES case the launcher now installs around.
+      - name: install.sh installs and prints the next steps
+        if: runner.os != 'Windows'
+        shell: bash
+        env: { RETICLE_TELEMETRY: '0' }
+        run: |
+          out="$(sh install/install.sh 2>&1)" || { echo "$out"; exit 1; }
+          echo "$out"
+          grep -q 'Next steps' <<< "$out"
+          ! grep -q 'RETICLE_INSTALL' <<< "$out"
+      - name: install.ps1 installs and prints the next steps (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env: { RETICLE_TELEMETRY: '0' }
+        run: |
+          # The installer writes progress to stderr on purpose; under 'Stop' a native stderr line throws.
+          $ErrorActionPreference = 'Continue'
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -File install\install.ps1 2>&1 | Out-String
+          $rc = $LASTEXITCODE
+          Write-Host $out
+          if ($rc -ne 0 -or $out -notmatch 'Next steps' -or $out -match 'RETICLE_INSTALL') { throw "install.ps1 failed ($rc)" }
+      - name: install.ps1 installs and prints the next steps (PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env: { RETICLE_TELEMETRY: '0' }
+        run: |
+          # The installer writes progress to stderr on purpose; under 'Stop' a native stderr line throws.
+          $ErrorActionPreference = 'Continue'
+          $out = pwsh -NoProfile -File install\install.ps1 2>&1 | Out-String
+          $rc = $LASTEXITCODE
+          Write-Host $out
+          if ($rc -ne 0 -or $out -notmatch 'Next steps' -or $out -match 'RETICLE_INSTALL') { throw "install.ps1 failed ($rc)" }
 
   early-gates:
     needs: [format-check, changes]

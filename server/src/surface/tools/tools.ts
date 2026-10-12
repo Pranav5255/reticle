@@ -49,19 +49,27 @@ import { VIEWPORT_TOOLS } from '@/portal/input/viewport-tools.js';
 import { SESSION_TOOLS } from '@/portal/session/session-tools.js';
 import { ANNOTATE_TOOLS } from '@/language/flows/annotate-tools.js';
 import { LIVE_CONTROL_TOOLS } from '@/portal/session/live-control-tools.js';
-import { type ToolDef, sessionIdShape, commandOrThrow } from './tool-kit.js';
+import {
+  type ToolDef,
+  SCREENSHOT_DOC,
+  sessionIdShape,
+  commandOrThrow,
+  withScreenshotDoc,
+} from './tool-kit.js';
 import { TOOL_SURFACE, type ToolSurface } from './tool-surface.js';
 import { mergeActWithSequence } from './act-merged.js';
 import { INSPECT_TOOL } from './inspect-tool.js';
 import { applyMerges, type MergePlan } from './merge-tools.js';
 import { ACT_TOOLS } from './act-tools.js';
 import { ACT_SEQUENCE_TOOL } from './act-sequence-tool.js';
+import { withCompactEnvelope } from './agent/compact-envelope.js';
 import { OBSERVE_TOOLS } from './observe-tools.js';
 import { LINEAGE_TOOLS } from './lineage-tools.js';
 import { RECONCILE_TOOLS } from './reconcile-tools.js';
 import { READ_TOOLS } from './read-tools.js';
 import { LEASE_TOOLS } from './lease-tools.js';
 import { FEEDBACK_TOOLS } from './feedback-tools.js';
+import { ACCOUNT_TOOLS } from './account-tool.js';
 
 // Re-exported so tool modules that import these from './tools.js' keep working after the kit move.
 export type { ToolDef, ToolDeps } from './tool-kit.js';
@@ -70,7 +78,7 @@ export type { ToolDef, ToolDeps } from './tool-kit.js';
 const SNAPSHOT_CACHE = new SnapshotCache();
 
 /** Every handler, including tools retired from the advertised MCP surface. */
-export const RAW_TOOLS: ToolDef[] = [
+export const RAW_TOOLS: ToolDef[] = withCompactEnvelope([
   {
     name: ReticleTool.SESSIONS,
     description:
@@ -457,6 +465,12 @@ export const RAW_TOOLS: ToolDef[] = [
             .describe(
               "Present when a TEXT search missed but the string IS on the page, split across this container's children. Retry as { scope: <ref>, self: true } — no text query can match a string no single element owns.",
             ),
+          caseMiss: z
+            .string()
+            .optional()
+            .describe(
+              'Present when a case-exact TEXT check missed and the page shows the text in another case: what it shows. Retry with ignoreCase: true if the case does not matter.',
+            ),
           // Declared here for the same reason presentRegions had to be: the browser emits it, and an
           // undeclared field is stripped from structuredContent without a word.
           nameNearMiss: z
@@ -543,8 +557,8 @@ export const RAW_TOOLS: ToolDef[] = [
   // Live-control: reticle_end_session / reticle_resume / reticle_messages. See live-control-tools.ts.
   ...LIVE_CONTROL_TOOLS,
   // reticle_navigate / reticle_refresh — browser navigation tools. See browser-tools.ts.
-  ...BROWSER_TOOLS,
-  ...ACT_TOOLS,
+  ...BROWSER_TOOLS.map(withScreenshotDoc),
+  ...ACT_TOOLS.map(withScreenshotDoc),
   ACT_SEQUENCE_TOOL,
   ...OBSERVE_TOOLS,
   ...LINEAGE_TOOLS,
@@ -552,7 +566,8 @@ export const RAW_TOOLS: ToolDef[] = [
   ...LEASE_TOOLS,
   // reticle_feedback — the agent reports that RETICLE failed (not that the app did). See feedback-tools.ts.
   ...FEEDBACK_TOOLS,
-];
+  ...ACCOUNT_TOOLS,
+]);
 
 /**
  * surface consolidation. Tool defs are re-sent EVERY turn, so the advertised count is a per-turn
@@ -598,7 +613,7 @@ export const MERGE_PLANS: MergePlan[] = [
       // existed. The rule is: if a tool has an obligation, the obligation goes first.
       // The first sentence is all a lean surface shows (160 characters), so it carries the
       // obligation and the HUD control; the rest is the detail for a full one.
-      'By action: "yield" is MANDATORY before you stop driving; "tune" hides or moves the HUD, or sets the idle window. ' +
+      'By action: "yield" is MANDATORY before you stop driving; "tune" hides or moves the HUD, or sets the idle window; "account" says the plan, credits and Harness state. ' +
       'In full: "yield" hands control back to the human (mode: waiting|ask, between turns); "tune" takes `hud` (hidden, shown, removed until reload, or a corner) for when the HUD covers a control you must test, and `idleEndMs`; "end" terminates the session for good; "resume" clears a human pause; "messages" drains the human→agent inbox; "review" lists/resolves the mistakes a human pinned to elements; "narrate" states your intent on the presenter HUD.',
     members: {
       tune: ReticleTool.SESSION_TUNE,
@@ -608,6 +623,7 @@ export const MERGE_PLANS: MergePlan[] = [
       messages: ReticleTool.MESSAGES,
       review: ReticleTool.REVIEW,
       narrate: ReticleTool.NARRATE,
+      account: ReticleTool.ACCOUNT,
     },
     // The handback the lease block orders on every session — the one call an agent MUST make, so it
     // is the one that must not need a schema lookup first.
@@ -884,7 +900,8 @@ export const SURFACE_MERGE_PLANS: MergePlan[] = [
   {
     name: ReticleTool.ASSERT,
     description:
-      'Prove a consequence, by action: "now" evaluates a predicate against the window that already exists, "wait" waits for one to become true within a budget. Both return a verdict; only `verified:"yes"` is a pass.',
+      'Prove a consequence, by action: "now" evaluates a predicate against the window that already exists, "wait" waits for one to become true within a budget. Both return a verdict; only `verified:"yes"` is a pass.' +
+      SCREENSHOT_DOC,
     members: { now: ReticleTool.ASSERT, wait: ReticleTool.WAIT_FOR },
     example: { action: 'now' },
     // Evaluate against the window that already exists. `wait` spends a budget, so it is asked for.

@@ -1,8 +1,8 @@
 import { applyHarnessSwitch, harnessConfigsByRoot } from '@/memory/cloud/harness-config.js';
 import { coveragePercents } from './features/exhaust/ledger.js';
-import { firstRunWiring } from './portal/session/first-run-wiring.js';
+import { agentWiring } from './portal/session/zero-install-first-call.js';
 import { fetchPlatformConfig } from '@/features/harness/platform-config.js';
-import { watchAccountFiles } from './memory/impact/account-watch.js';
+import { pushIfMoved, watchAccountFiles } from './memory/impact/account-watch.js';
 import { SESSION_FILE } from './command/cli/cloud-kit.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -62,8 +62,7 @@ import { startVerifyServer } from './judgement/runs/verify-server.js';
 import { createMcpServer } from './surface/mcp/mcp.js';
 import { instructionStateAt } from './surface/mcp/mcp-proxy.js';
 import { LEASE_ACQUIRE_TOOL } from './surface/tools/lease-tools.js';
-import { attachHudHarness, startChatDrives } from './surface/tools/chat-drives.js';
-import { withRunningDrive } from './features/harness/drive-runs.js';
+import { attachHudHarness, projectLinkOnly, startChatDrives } from './surface/tools/chat-drives.js';
 import { runTool } from './surface/tools/invoke-tool.js';
 import {
   SessionReaper,
@@ -91,7 +90,6 @@ import {
 import { probeLaunchableChromium } from './launch-chromium.js';
 import { attachJournal } from './wire-journal.js';
 import { reportOnboardingStep } from './telemetry/onboarding-funnel.js';
-import { AMBIENT_RECORDING } from './language/flows/recording/tape/recordings.js';
 import { readRetainPolicy } from './memory/journal/on-disk/retain-policy.js';
 import type { RealInputProvider } from './portal/input/real-input.js';
 import { log } from './log.js';
@@ -428,7 +426,7 @@ export async function start(options: StartOptions = {}): Promise<RunningServer> 
       enabled: journalEnabled,
       retain,
       // Bound HERE, where the recorder is already in hand: teardown gets the tape, not the recorder.
-      takeAmbientTape: () => recordings.stop(AMBIENT_RECORDING),
+      takeAmbientTape: (sessionId) => recordings.takeAmbient(sessionId),
       reportStep: reportOnboardingStep,
       flows,
       author: flowAuthor,
@@ -557,12 +555,11 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     sdkFix: sdkFixForProject,
     ...security,
   });
-  const repaint = (only?: string): void => {
+  const repaint = (only?: string, ifChanged = false): void => {
     for (const session of bridge.sessions.all()) {
       const root =
         session.artifactRoot ?? options.reticleRoot ?? join(process.cwd(), ReticleDir.ROOT);
-      if (only === undefined || only === root)
-        session.pushImpact(() => withRunningDrive(impactSnapshot(root), session.id), true);
+      if ((only ?? root) === root) pushIfMoved(session, () => impactSnapshot(root), ifChanged);
     }
   };
   pushHarnessConfig = repaint;
@@ -616,7 +613,8 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
   // See the sibling path: `retain.sessions: 0` stops the capture too, not only the sweep.
   const journalEnabled =
     readJournalEnabled(process.cwd(), process.env[ReticleEnv.JOURNAL]) && 0 < retain.sessions;
-  const flows = new FlowStore(fs, reticleRoot, { now });
+  // A saved flow wakes sync like a landed run: see FlowStore's `onWrote`.
+  const flows = new FlowStore(fs, reticleRoot, { now }, { onWrote: () => syncNudge.run?.() });
   // Built here rather than inside `deps` below, so teardown can save what a drive recorded. Both
   // paths pass the same pair — `daemon-parity.test.ts` is what keeps them from drifting apart.
   const recordings = new RecordingStore(() => currentDrivenBy() !== undefined);
@@ -628,12 +626,12 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
    * setup ahead of session capture for the sake of one callback.
    */
   const syncNudge: { run?: () => void } = {};
-  attachJournal(bridge, {
+  const endLiveSessions = attachJournal(bridge, {
     fs,
     reticleRoot,
     enabled: journalEnabled,
     retain,
-    takeAmbientTape: () => recordings.stop(AMBIENT_RECORDING),
+    takeAmbientTape: (sessionId) => recordings.takeAmbient(sessionId),
     reportStep: reportOnboardingStep,
     flows,
     author: flowAuthor,
@@ -672,9 +670,9 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
   // `syncNow`, not `nudge` (a cycle soon): somebody is watching the button. Never awaited.
   bridge.attachSyncRequest(() => void cloudSync.syncNow());
   if (options.hudSignIn !== undefined)
-    bridge.attachSigninRequest(options.hudSignIn(() => repaint()));
-  // logout and link run in another process: repaint when their files change. See account-watch.ts.
-  const accountFiles = watchAccountFiles(() => repaint());
+    bridge.attachSigninRequest(options.hudSignIn(repaint, projectLinkOnly(options.hudLink)));
+  // Logout and link run in another process: repaint when their files change, the rest on a timer.
+  const accountFiles = watchAccountFiles(repaint, undefined, () => repaint(undefined, true));
   accountFiles.watch(join(homedir(), ReticleDir.ROOT, SESSION_FILE));
   bridge.attachSessionReady((s) =>
     accountFiles.watch(join(s.artifactRoot ?? reticleRoot, ReticleDir.CLOUD_LINK_FILE)),
@@ -683,6 +681,7 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     bridge,
     { deps: () => deps, root: reticleRoot, repaint: () => repaint() },
     (r, on) => applyHarnessSwitch(configForRoot, r, on, platformEnvFor(r)),
+    options.hudLink,
   );
   // Scope auto-selection to the active project (from .reticle.json) so a stray tab from another app is
   // never picked when the agent omits a sessionId. Explicit per-call scope/sessionId still overrides.
@@ -698,6 +697,8 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     (sessionId) => pool.wasReapedLease(sessionId),
     (url) => pool.acquire(url),
   );
+  const leaseUrl = (url: string): Promise<unknown> =>
+    runTool(LEASE_ACQUIRE_TOOL, effectiveDeps, { url });
   const deps = {
     sessions: bridge.sessions,
     pool,
@@ -722,7 +723,7 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     now,
     bridgePort: port,
     browserProbe: probeLaunchableChromium,
-    firstRun: firstRunWiring({ port, cliPath: process.argv[1] ?? '' }),
+    ...agentWiring(port, bridge.sessions, leaseUrl),
     // A finished verification should not sit behind a one-minute timer — see ToolDeps.onRunPersisted.
     onRunPersisted: (): void => cloudSync.nudge(),
     syncNow: () => cloudSync.syncNow(),
@@ -740,8 +741,7 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
       instructionStateAt(port, bridge.sessions.count()),
     ),
   );
-  // `reticle drive <url>` against this daemon's port, through runTool. See cli/drive/drive-attach.ts.
-  shared.attachDrive((url) => runTool(LEASE_ACQUIRE_TOOL, effectiveDeps, { url }));
+  shared.attachDrive(leaseUrl); // `reticle drive <url>` — see cli/drive/drive-attach.ts.
   // The platform chat's apps and drives, run here. See chat-drives.ts.
   const chatDrives = startChatDrives(
     effectiveDeps,
@@ -856,6 +856,7 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
       leaseReaper.stop();
       chatDrives.stop();
       accountFiles.close();
+      await endLiveSessions(); // first: an open tab's teardown writes the flow this flush sends
       await cloudSync.flush(); // not stop(): the last run written is the one nobody has yet
       await loopbackAlias.close?.();
       await pool.shutdown();

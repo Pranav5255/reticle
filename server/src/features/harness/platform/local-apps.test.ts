@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { LinkCapability, LinkReportKey, PLATFORM_LINK_VERSION } from '@reticlehq/core';
+import {
+  CoverageCapability,
+  LinkCapability,
+  LinkReportKey,
+  NotApplicableSchema,
+  PLATFORM_LINK_VERSION,
+} from '@reticlehq/core';
 import {
   appKeyOf,
   appsByPlatform,
@@ -7,6 +13,7 @@ import {
   machineOf,
   nameFromProjectId,
   pickAppTab,
+  reportAppsNow,
   startAppReports,
   type AppReports,
   type AppTab,
@@ -56,6 +63,51 @@ describe('the apps reported to each platform', () => {
       dir: dirs[t.sessionId] ?? '/',
       name: (dirs[t.sessionId] ?? '/').split('/').pop() ?? '',
     });
+
+  /*
+   * A fresh tab opened beside the one an agent had driven reported for the app, and the setup score
+   * fell from 87% to 75%: the Harness locked again until that tab happened to close. Of two tabs of
+   * one app, the one that has seen the most speaks for it.
+   */
+  it('reports the tab of an app that has seen the most, not the one that happened to come first', async () => {
+    const groups = await appsByPlatform(
+      [
+        tab('s1', 'http://localhost:3000/', { channels: ['ui', 'net'] }),
+        tab('s3', 'http://localhost:3000/compose', { channels: ['ui', 'net', 'source', 'testid'] }),
+      ],
+      undefined,
+      MACHINE.id,
+      describeTab,
+    );
+    expect(groups[0]?.apps).toHaveLength(1);
+    expect(groups[0]?.apps[0]?.url).toBe('http://localhost:3000/compose');
+  });
+
+  /**
+   * Of two tabs of one app, the one with more channels used to speak alone, so the score depended
+   * on which tab reported: test ids seen in one tab and source in another counted as neither.
+   */
+  it('merges the channels and gaps every tab of an app has seen', async () => {
+    const gapA = { kind: 'missing-testid', missing: 'e1', fix: 'add one', seenAt: 1 };
+    const gapB = { kind: 'no-source-mapping', missing: 'e2', fix: 'stamp it', seenAt: 2 };
+    const groups = await appsByPlatform(
+      [
+        tab('s1', 'http://localhost:3000/', { channels: ['ui', 'testid'], gaps: [gapA] }),
+        tab('s3', 'http://localhost:3000/compose', {
+          channels: ['ui', 'net', 'source'],
+          gaps: [gapB, gapA],
+        }),
+      ],
+      undefined,
+      MACHINE.id,
+      describeTab,
+    );
+    const app = groups[0]?.apps[0];
+    expect([...(app?.[LinkReportKey.CHANNELS] ?? [])].sort()).toEqual(
+      ['net', 'source', 'testid', 'ui'].sort(),
+    );
+    expect(app?.[LinkReportKey.GAPS]).toHaveLength(2);
+  });
 
   it('reports each project once, to the platform its link names, with what it is built with', async () => {
     const groups = await appsByPlatform(
@@ -201,6 +253,24 @@ describe('reporting', () => {
     expect(opened).toEqual(['http://localhost:4000/']);
   });
 
+  // Group D persona drives: the daemon's gate learned the app's markers, but the platform still
+  // refused at 75% on the report it had. The gate asks for a report at once.
+  it('reports at once when asked, rather than waiting for the next tick', async () => {
+    const p = platform({ wake: [], pendingDrive: false });
+    running = startAppReports({
+      machine: MACHINE,
+      version: '3.7.0',
+      capabilities: [],
+      apps: () => Promise.resolve([{ platform: A, apps: [shop] }]),
+      open: () => Promise.resolve(),
+      drivePending: () => undefined,
+      fetch: p.fetch,
+      intervalMs: 60_000,
+    });
+    await reportAppsNow();
+    expect(p.calls).toHaveLength(1);
+  });
+
   it('never re-opens an app that is already open, and says when a drive is waiting', async () => {
     const p = platform({ wake: [{ key: 'k_shop', url: shop.url }], pendingDrive: true });
     const opened: string[] = [];
@@ -334,7 +404,13 @@ describe('what a report says about coverage and connection', () => {
   it('carries each app’s channels, recorded gaps and adapters', async () => {
     const gap = { kind: 'no-source-mapping', missing: 'e1', fix: 'add the plugin', seenAt: 7 };
     const [group] = await appsByPlatform(
-      [tab('s1', 'http://localhost:3000/', { channels: ['ui', 'net'], gaps: [gap] })],
+      [
+        tab('s1', 'http://localhost:3000/', {
+          channels: ['ui', 'net'],
+          gaps: [gap],
+          notApplicable: [CoverageCapability.APP_STATE],
+        }),
+      ],
       undefined,
       MACHINE.id,
       () => Promise.resolve({ platform: A, dir: '/code/shop', name: 'shop' }),
@@ -343,7 +419,11 @@ describe('what a report says about coverage and connection', () => {
       [LinkReportKey.CHANNELS]: ['ui', 'net'],
       [LinkReportKey.GAPS]: [gap],
       [LinkReportKey.ADAPTERS]: ['react'],
+      [LinkReportKey.NOT_APPLICABLE]: [CoverageCapability.APP_STATE],
     });
+    expect(
+      NotApplicableSchema.safeParse(group?.apps[0]?.[LinkReportKey.NOT_APPLICABLE]).success,
+    ).toBe(true);
   });
 
   it('sends dev servers, the last refused hello and unsent runs at the top level', async () => {

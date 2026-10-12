@@ -41,7 +41,7 @@ import {
   VITE_CONFIG_CANDIDATES,
 } from './detect/workspace-apps.js';
 import { redirectToWorkspaceApp } from './detect/workspace-redirect.js';
-import { enclosingWorkspaceRoot } from './detect/workspace-apps.js';
+import { appsAt, enclosingWorkspaceRoot } from './detect/workspace-apps.js';
 import { isConnectStep } from './plan/connect-steps.js';
 import { CURSOR_RULE_PATH, RETICLE_MD_PATH } from './project/agent-rules.js';
 import { CLAUDE_SETTINGS_PATH } from './plan/stop-hook-step.js';
@@ -298,6 +298,7 @@ function gatherPlanInput(options: InitOptions, io: InitIo, pkg: unknown): PlanIn
     nodeModulesMarkers,
   };
   const detection = detect(detectInput);
+  const nodeModulesLinked = true === io.isSymlink?.('node_modules');
   // Forge has no `vite.config.*`; its renderer config IS the Vite config the plugin belongs in, and
   // handing it over under that name is what lets the ordinary Vite patcher do the work.
   const plainViteConfig =
@@ -392,6 +393,7 @@ function gatherPlanInput(options: InitOptions, io: InitIo, pkg: unknown): PlanIn
 
   return {
     detection,
+    ...(nodeModulesLinked ? { nodeModulesLinked } : {}),
     captureBodies: options.captureBodies,
     hooks: options.hooks,
     cspSources,
@@ -503,14 +505,14 @@ function gatherPlanInput(options: InitOptions, io: InitIo, pkg: unknown): PlanIn
     claudeCommandContent: io.readFile(agentFile(CLAUDE_COMMAND_PATH)),
     cursorCommandContent: io.readFile(agentFile(CURSOR_COMMAND_PATH)),
     // Read only to MERGE into: the settings file is the user's, and other tools write in it too.
-    claudeSettingsContent:
-      true === options.hooks ? io.readFile(agentFile(CLAUDE_SETTINGS_PATH)) : undefined,
+    claudeSettingsContent: io.readFile(agentFile(CLAUDE_SETTINGS_PATH)),
     ...(agentRoot === undefined
       ? {}
       : {
           agentFileRoot: agentRoot,
           // The config the AGENT's cwd already has, if any — see agentRootConfigStep.
           agentRootConfigSource: io.readFile(agentFile(RETICLE_CONFIG_FILE)),
+          agentRootSeveralApps: true === options.severalApps,
         }),
     options: {
       port: options.port,
@@ -793,7 +795,8 @@ function classifyInitFailure(failed: ReadonlySet<string>): string {
 function withWorkspaceRoot(options: InitOptions, io: InitIo): InitOptions {
   if (options.agentRoot !== undefined || true === options.redirected) return options;
   const root = enclosingWorkspaceRoot(options.cwd, io);
-  return root === undefined ? options : { ...options, agentRoot: root };
+  if (root === undefined) return options;
+  return { ...options, agentRoot: root, severalApps: 1 < appsAt(root, io).length };
 }
 
 export function runInit(options: InitOptions, io: InitIo): InitResult {
@@ -861,11 +864,11 @@ function runInitSteps(options: InitOptions, io: InitIo): InitResult {
   // `--app frontend`, the flag that exists for exactly this, was never read because the bail came
   // first. Reported twice by the same user, who tried the documented workaround and hit the same
   // wall. Discovery already handles the case (it scans top-level directories, not just declared
-  // workspaces); it was simply unreachable.
-  //
-  // `'{}'` because the redirect only needs the manifest to ask "is THIS directory the app", and a
-  // directory with no package.json is definitively not.
+  // workspaces); it was simply unreachable. `'{}'`: a directory with no manifest is not the app.
   const redirectedEarly = redirectToWorkspaceApp(options, io, pkgRaw ?? {}, runInit);
+  // Listing the apps below still counts as "no app here", in the same series as before.
+  if (true === redirectedEarly?.listedAppsBelow && !options.dryRun)
+    io.host.reportOutcome({ ok: false, reason: InitFailure.NO_PACKAGE_JSON });
   if (redirectedEarly !== null) return redirectedEarly;
   if (null === pkgRaw) return initWithoutPackageJson(options, io);
 

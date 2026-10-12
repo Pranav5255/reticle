@@ -69,7 +69,7 @@ import {
   projectIdOf,
   RETICLE_CONFIG_FILE,
 } from '@/detect/existing-config.js';
-import { CLAUDE_SETTINGS_PATH, stopHookStep } from './stop-hook-step.js';
+import { CLAUDE_SETTINGS_PATH, claudeSettingsSteps } from './stop-hook-step.js';
 
 // Re-exported: it moved to the module that reads it, and every existing importer says `plan.js`.
 export { RETICLE_CONFIG_FILE };
@@ -622,12 +622,22 @@ function installStep(input: PlanInput): Step {
       detail: `${names.join(', ')} already declared${version === undefined || 0 === version.length ? '' : ` at ${version}`}`,
     };
   }
+  // Never install into a linked tree: the package manager replaces the link (a workspace's tree).
+  if (true === input.nodeModulesLinked) {
+    return {
+      title: 'Install dependencies',
+      target: 'package.json',
+      status: StepStatus.SKIP,
+      detail: `skipped: node_modules is a link to another tree, which an install here would replace; install them where it points: ${command}`,
+    };
+  }
+  // The person said `--no-install`: a choice, not a step left undone, so not a ⚠.
   if (!input.options.install) {
     return {
       title: 'Install dependencies',
       target: 'package.json',
-      status: StepStatus.MANUAL,
-      detail: command,
+      status: StepStatus.SKIP,
+      detail: `skipped (--no-install); install them yourself: ${command}`,
     };
   }
   const parts = installCommandParts(pm, packages, [], pmCommand);
@@ -703,6 +713,20 @@ function agentRootConfigStep(input: PlanInput, content: string): Step[] {
           `left alone: it names project "${existingProject}", not "${wantedProject}". An agent ` +
           'started here would read that project and drive this one. Point it at whichever app ' +
           'this agent should verify, or run the agent from the app directory.',
+      },
+    ];
+  }
+  // Several apps: a root config names one and is wrong for the rest. Not written; an agent at the
+  // root is served whichever app's daemon is live, and one started in an app reads that app's.
+  if (true === input.agentRootSeveralApps && existingProject === undefined) {
+    return [
+      {
+        title: AGENT_ROOT_CONFIG_TITLE,
+        target: path,
+        status: StepStatus.NOTICE,
+        detail:
+          'not written: this workspace has several apps and the root can name only one. Run the ' +
+          "agent from an app's directory to pin it to that app.",
       },
     ];
   }
@@ -819,16 +843,19 @@ export function buildPlan(input: PlanInput): Plan {
     ...mcpSteps(input),
     ...agentRuleSteps(input),
     ...slashCommandSteps(input),
-    ...(true === input.hooks
-      ? [stopHookStep(agentFile(input, CLAUDE_SETTINGS_PATH), input.claudeSettingsContent)]
-      : []),
+    ...claudeSettingsSteps(agentFile(input, CLAUDE_SETTINGS_PATH), input.claudeSettingsContent, {
+      stop: true === input.hooks,
+      // Beside the CLAUDE.md rule: the same agent, the same consent to write its instruction files.
+      compact: input.options.mcp && input.claudeCli,
+    }),
     ...uiLibraryStep(input),
     ...webGlCanvasStep(input),
     installStep(input),
     ...reticleConfigSteps(input),
   ];
   // Both steps can patch index.html: the connect write must keep the CSP edit that runs first.
-  const patchedIndex = cspSteps.find((step) => step.write?.path === HTML_INDEX_PATH)?.write?.content;
+  const patchedIndex = cspSteps.find((step) => step.write?.path === HTML_INDEX_PATH)?.write
+    ?.content;
   steps.push(
     ...frameworkSteps(
       patchedIndex === undefined ? input : { ...input, htmlIndexSource: patchedIndex },

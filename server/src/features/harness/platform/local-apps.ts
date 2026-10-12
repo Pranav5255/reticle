@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { relative, sep } from 'node:path';
 import {
   LinkReportKey,
+  type CoverageCapability,
   LinkPath,
   type LinkAppGap,
   type LinkDevServer,
@@ -59,6 +60,8 @@ export interface AppTab extends DriveCandidate {
   channels?: string[];
   /** Instrumentation gaps this tab's verdicts recorded, newest first. */
   gaps?: LinkAppGap[];
+  /** Coverage capabilities that do not apply to this app. */
+  notApplicable?: CoverageCapability[];
 }
 
 export interface ReportedApp {
@@ -71,6 +74,7 @@ export interface ReportedApp {
   channels?: string[];
   gaps?: LinkAppGap[];
   adapters?: string[];
+  notApplicable?: CoverageCapability[];
 }
 
 /** What a report carries beside its apps. Every field additive; see `LinkReportKey`. */
@@ -142,7 +146,7 @@ export const nameFromProjectId = (projectId: string): string =>
 const RETICLE_MARKS = new Set<string>(Object.values(RETICLE_URL_PARAM));
 
 /** The address as the app knows it: the params Reticle put on it to adopt a tab are not the app's. */
-const withoutMarks = (raw: string): string => {
+export const withoutMarks = (raw: string): string => {
   try {
     const url = new URL(raw);
     for (const mark of [...url.searchParams.keys()])
@@ -152,6 +156,42 @@ const withoutMarks = (raw: string): string => {
     return raw;
   }
 };
+
+/** Every channel either tab announced, once each; undefined when neither said. */
+function mergedChannels(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): string[] | undefined {
+  return a === undefined && b === undefined
+    ? undefined
+    : [...new Set([...(a ?? []), ...(b ?? [])])];
+}
+
+/** Every gap either tab recorded, once per kind + missing, the first seen kept. */
+function mergedGaps(
+  a: readonly LinkAppGap[] | undefined,
+  b: readonly LinkAppGap[] | undefined,
+): LinkAppGap[] {
+  const out = new Map<string, LinkAppGap>();
+  for (const gap of [...(a ?? []), ...(b ?? [])]) {
+    const id = `${gap.kind}\u0000${gap.missing}`;
+    if (!out.has(id)) out.set(id, gap);
+  }
+  return [...out.values()];
+}
+
+/** `app` carrying the merged channels and gaps, omitting each when there is nothing to say. */
+function withSeen<T extends object>(
+  app: T,
+  channels: string[] | undefined,
+  gaps: LinkAppGap[],
+): T & { [LinkReportKey.CHANNELS]?: string[]; [LinkReportKey.GAPS]?: LinkAppGap[] } {
+  return {
+    ...app,
+    ...(channels === undefined ? {} : { [LinkReportKey.CHANNELS]: channels }),
+    ...(0 === gaps.length ? {} : { [LinkReportKey.GAPS]: gaps }),
+  };
+}
 
 /**
  * The apps to report, grouped by the platform credential each one's project is linked with. The
@@ -179,7 +219,20 @@ export async function appsByPlatform(
     if (undefined === about?.platform) continue;
     const key = appKeyOf(machineId, about.dir, tab.projectId);
     const apps = group(about.platform).apps;
-    if (apps.has(key)) continue;
+    // Of two tabs of one app, the one that has seen the most speaks for it (a tie keeps the earlier,
+    // so a visible one still speaks over a hidden one). What they have SEEN is merged, so the setup
+    // score does not depend on which tab happened to report: a fresh tab opened beside a driven one
+    // once dropped it and locked the Harness.
+    const held = apps.get(key);
+    const channels = mergedChannels(held?.[LinkReportKey.CHANNELS], tab.channels);
+    const gaps = mergedGaps(held?.[LinkReportKey.GAPS], tab.gaps);
+    if (
+      held !== undefined &&
+      (tab.channels?.length ?? 0) <= (held[LinkReportKey.CHANNELS]?.length ?? 0)
+    ) {
+      apps.set(key, withSeen(held, channels, gaps));
+      continue;
+    }
     const stack = [
       ...new Set([...tab.adapters, ...(tab.runtime === undefined ? [] : [tab.runtime])]),
     ].filter((part) => WEB_RUNTIME !== part);
@@ -190,11 +243,11 @@ export async function appsByPlatform(
       ...(tab.title === undefined ? {} : { title: tab.title }),
       stack,
       ...(tab.sdkVersion === undefined ? {} : { sdkVersion: tab.sdkVersion }),
-      ...(tab.channels === undefined ? {} : { [LinkReportKey.CHANNELS]: tab.channels }),
-      ...(tab.gaps === undefined || 0 === tab.gaps.length
-        ? {}
-        : { [LinkReportKey.GAPS]: tab.gaps }),
       ...(0 === tab.adapters.length ? {} : { [LinkReportKey.ADAPTERS]: tab.adapters }),
+      ...(tab.notApplicable === undefined
+        ? {}
+        : { [LinkReportKey.NOT_APPLICABLE]: tab.notApplicable }),
+      ...withSeen({}, channels, gaps),
     });
   }
   return [...groups.values()].map(({ platform, apps }) => ({ platform, apps: [...apps.values()] }));
@@ -303,8 +356,25 @@ export function startAppReports(deps: AppReportDeps): AppReports {
   };
   const timer = setInterval(() => void tick(), deps.intervalMs ?? LOCAL_APPS_REPORT_MS);
   timer.unref();
-  return { tick, stop: () => clearInterval(timer) };
+  const reports: AppReports = {
+    tick,
+    stop: () => {
+      clearInterval(timer);
+      if (running === reports) running = undefined;
+    },
+  };
+  running = reports;
+  return reports;
 }
+
+/** The daemon's running reports. ponytail: one per daemon, the last one started. */
+let running: AppReports | undefined;
+
+/**
+ * Report now rather than on the next tick: the Harness gate just learned what an app's pages carry,
+ * and the platform, which locks a drive on its last report, would otherwise refuse on the old one.
+ */
+export const reportAppsNow = (): Promise<void> => running?.tick() ?? Promise.resolve();
 
 /**
  * The tab a drive the chat attached to one app uses: a tab of that app and no other, even on the

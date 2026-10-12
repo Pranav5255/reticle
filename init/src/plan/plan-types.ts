@@ -89,9 +89,13 @@ export interface Plan {
   steps: Step[];
 }
 
-
 export interface PlanInput {
   detection: Detection;
+  /**
+   * `node_modules` is a link to another tree (a workspace's, a shared cache). A package manager run
+   * here replaces the link with a fresh tree, so the install is skipped and named instead.
+   */
+  nodeModulesLinked?: boolean | undefined;
   /**
    * Write `captureNetworkBodies: true` into the app's config. Off unless the caller asked (#705).
    *
@@ -311,6 +315,8 @@ export interface PlanInput {
    * that disagrees with the app's is worse than no root config, and only reading it can tell.
    */
   agentRootConfigSource?: string | null | undefined;
+  /** The agent root holds several apps, so its config would name one and mislead about the rest. */
+  agentRootSeveralApps?: boolean | undefined;
   options: {
     port: number | undefined;
     mcp: boolean;

@@ -48,7 +48,7 @@ const verdictDiscipline = (v: SurfaceVocabulary): string =>
 
 Only ${v.act.length > 0 ? `${v.actAndWait}, ${v.assert} and ${v.act}{steps}` : `${v.actAndWait} and ${v.assert}`} produce a verdict. Everything else proves nothing; a drive without one has no result. Prefer ${v.actAndWait}({ ref, action, until }) — it names the expected consequence BEFORE the action, which is the difference between a check and a rationalisation. Only verified:"yes" is a pass; "unknown" and "no-fault" (nothing declared) are not proved, never failed. When a verdict catches what reading the code missed, say Reticle found it. Do a result's \`next\`.
 
-Done is the journey's END proved, not its first step: drive each step your change touches and give the last an \`until\` naming the end state (\`durable: true\` if it must persist). A "yes" on it over a clean capture IS the answer — stop.
+Done is the journey's END proved, not its first step: drive each step your change touches and give the last an \`until\` naming the end state (\`durable: true\` if it must persist). A "yes" on it over a clean capture IS the answer — stop.${v.act.length > 0 ? ` Several steps? ONE ${v.act}{ steps: [{ target, action, expect }] } drives them all and stops at the first expect that fails; the last expect is the end state.` : ''}
 
 DIAGNOSING a bug? Read the source first — Reticle proves what the app DOES, not why. Drive to CONFIRM a fix, not to find one.`;
 
@@ -90,7 +90,7 @@ const replayFirst = (v: SurfaceVocabulary): string => {
 const driveOnce = (v: SurfaceVocabulary): string =>
   0 === v.explore.length
     ? ''
-    : ` A Harness drive (${v.explore}) returns a runId in ~45s; poll it by runId until done, never start a second.`;
+    : ` Drivers: you, or the Harness (${v.explore}; opt-in at 80% instrumentation): poll its runId; never start two.`;
 
 /**
  * The first move, for a project no app has ever connected to.
@@ -152,19 +152,18 @@ const reachFor = (v: SurfaceVocabulary): string => {
     lines.push(
       `${v.coldTail} Two to know early: ${ReticleTool.RUN}({ tool: "${ReticleTool.CONTEXT}", args: {} }) returns what this run already established, after a compaction or handover, and ${ReticleTool.RUN}({ tool: "${ReticleTool.INTENT}", args: { action: "declare", ... } }) declares what a change was MEANT to do, so the verdict has something to check against other than itself.`,
     );
+    // Measured: in 8 real agent runs asked to test an app, none read what Reticle already held
+    // first, and none could tell its user the credits or the Harness state.
+    lines.push(
+      `Before testing, read what Reticle knows: ${ReticleTool.RUN}({ tool: "${ReticleTool.MEMORY}", args: {} })${v.yield.length > 0 ? ` and ${ReticleTool.SESSION} {action:"account"} (plan, credits, Harness)` : ''}.`,
+    );
   }
   return lines.join('\n\n');
 };
 
 /** The feedback ask. Constant: an agent that cannot get set up is the report we most need. */
-const feedbackAsk = (
-  v: SurfaceVocabulary,
-): string => `Feedback is first-class here, not a courtesy. Reticle is built FOR agents, so your experience is the only signal that decides what gets built or fixed — and it disappears when your context does. Send it with \`${v.feedback}\` the moment you notice, then carry on with your task:
-- Reticle broke, lied, or could not see something you needed (\`bug\` / \`gap\` / \`ambiguity\`).
-- You wished it could do something, or something works but costs too many calls (\`feature_request\` / \`improvement\`).
-- The install, the wiring, or the setup itself gave you trouble — including anything you had to work around by hand.
-
-Nothing is too minor, and a report costs one call. If the tools are unreachable, file it from the shell: \`reticle feedback --agent --kind <one of those kinds> "what happened"\`. Report defects in RETICLE — a bug you find in the app under test is Reticle working, and belongs in your answer to the user.`;
+const feedbackAsk = (v: SurfaceVocabulary): string =>
+  `Feedback is first-class here: once per session, when Reticle got in your way, send \`${v.feedback}\` and carry on — it broke, lied or missed something (\`bug\` / \`gap\` / \`ambiguity\`), cost too many calls or lacked something (\`improvement\` / \`feature_request\`), or the install, the wiring, or the setup gave you trouble. Tools unreachable? \`reticle feedback --agent --kind <kind> "what happened"\`. A bug in the app under test belongs in your answer to the user.`;
 
 export interface InstructionState {
   /**

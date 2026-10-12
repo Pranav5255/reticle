@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ToolDeps } from './tool-kit.js';
 // The tool table first, as the daemon loads it: the explore module sits on an import cycle with it.
 import './tools.js';
-import { MSG_ALREADY_DRIVING, answerExplore, type ExploreDrive } from './explore-tools.js';
+import {
+  MSG_ALREADY_DRIVING,
+  answerExplore,
+  exploreReport,
+  type ExploreDrive,
+} from './explore-tools.js';
 import {
   DriveStatus,
   forgetDrives,
@@ -74,6 +79,39 @@ describe('a Harness drive, started then polled', () => {
     expect(out['status']).toBe(DriveStatus.RUNNING);
     expect(out['runId']).toBe(`harness-${String(d.harnesses[0])}`);
     expect(out['next']).toEqual({ action: 'explore', runId: out['runId'] });
+  });
+
+  it('while running, says how far it got and tells the agent to poll again rather than leave', async () => {
+    const d = held();
+    let now = 1000;
+    const clocked = { ...deps(), now: () => now } as ToolDeps;
+    const { runId } = record(await answerExplore(clocked, { wait: 0 }, undefined, d.drive));
+    noteDriveStep(String(d.harnesses[0]), 'reticle_act');
+    now = 13_400;
+    const out = record(await answerExplore(clocked, { runId, wait: 0 }, undefined, d.drive));
+    expect(out).toMatchObject({ status: DriveStatus.RUNNING, steps: 1, elapsedS: 12 });
+    expect(out['lastLine']).toContain('reticle_act');
+    expect(out['instruction']).toContain(
+      `reticle_verify {action:"explore", runId:"${String(runId)}"}`,
+    );
+    expect(out['instruction']).toContain('keeps running');
+  });
+
+  it('waits the default bound when no wait is given, below a 60s client timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const d = held();
+      const pending = answerExplore(deps(), {}, undefined, d.drive);
+      await vi.advanceTimersByTimeAsync(49_000);
+      let settled = false;
+      void pending.then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(record(await pending)['status']).toBe(DriveStatus.RUNNING);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('answers the full result when the drive ends inside the wait', async () => {
@@ -153,7 +191,76 @@ describe('a Harness drive, started then polled', () => {
     const d = held();
     const pending = answerExplore(deps(), { wait: 30 }, undefined, d.drive);
     await d.started();
-    d.fail(new Error('Autonomous driving is turned OFF'));
-    await expect(pending).rejects.toThrow('turned OFF');
+    d.fail(new Error('The Reticle Harness is off for this project'));
+    await expect(pending).rejects.toThrow('is off for this project');
+  });
+});
+
+/*
+ * Persona drives ran the platform's plan and the answer still embedded a second, local plan of
+ * fifteen replays of other people's flows, and a driver account saying "saved 3 flow(s)" beside
+ * `savedFlows` listing one.
+ */
+describe('the answer of a drive that ran the platform plan', () => {
+  const drive = {
+    stopReason: 'finished' as const,
+    summary: 'Drove 2 actions and saved 3 flow(s): a, b, c.',
+    steps: 2,
+    toolCalls: [],
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    proved: false,
+  };
+  const base = {
+    drive,
+    plan: { summary: '15 replays', steps: [{ kind: 'replay', target: 'other', why: 'x' }] },
+    savedFlows: ['a'],
+    rewroteFlows: [],
+    unverifiedFlows: [],
+    goals: [],
+    driverName: 'server',
+  } as unknown as Parameters<typeof exploreReport>[0];
+
+  it('carries that plan alone, and one count of the flows it saved', () => {
+    const out = exploreReport({
+      ...base,
+      journeys: [{ title: 'Team', status: 'passed' }],
+    } as never);
+    expect(out['plan']).toBeUndefined();
+    expect(out['driverAccount']).toBeUndefined();
+    expect(out['savedFlows']).toEqual(['a']);
+  });
+
+  /** One verdict: "0 of 1 journeys passed … PROVED" was the run's last line beside a Failed run. */
+  it("says the journeys' verdict, in `proved` and in the summary's first line", () => {
+    const held = {
+      id: 'c1',
+      name: 'reticle_act_and_wait',
+      args: { ref: 'e1', action: 'click', until: { kind: 'signal', name: 'x' } },
+      result: { verified: 'yes' },
+      isError: false,
+    };
+    const out = exploreReport({
+      ...base,
+      drive: { ...drive, toolCalls: [held] },
+      journeys: [{ title: 'Team', status: 'failed' }],
+    } as never);
+    expect(out['proved']).toBe(false);
+    expect(String(out['summary'])).toContain('NOT PROVED — 1 of 1 journey(s) failed');
+  });
+
+  /** "Give it a persona" was advice to a persona drive, printed under a plan run on the plan page. */
+  it('does not tell a plan run to give it a persona', () => {
+    const out = exploreReport({
+      ...base,
+      savedFlows: [],
+      journeys: [{ title: 'Team', status: 'failed' }],
+    } as never);
+    expect(out['note']).toBeUndefined();
+  });
+
+  it('keeps the local plan and the driver account when nothing else planned it', () => {
+    const out = exploreReport(base);
+    expect(out['plan']).toEqual({ summary: '15 replays', steps: base.plan.steps });
+    expect(out['driverAccount']).toBe(drive.summary);
   });
 });

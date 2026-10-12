@@ -21,11 +21,13 @@ import type { ToolCall, ToolDef, ToolDeps } from './tool-kit.js';
 import {
   DriveOrigin,
   DriveStatus,
+  POLL_WAIT_DEFAULT_S,
   awaitDrive,
   driveRecord,
   runningDrive,
   sayToDrive,
   startDrive,
+  stillRunning,
   stopDrive,
   type DriveControl,
   type DriveRecord,
@@ -35,27 +37,34 @@ import {
   platformRunAnswer,
 } from '@/features/harness/platform/platform-drives.js';
 import { serverOptionsFromEnv } from '@/features/harness/platform/server-driver.js';
+import { reportPlanBlocked, savedPlanDrivesNothing } from '@/features/harness/platform/script.js';
 import { harnessRunId } from '@/judgement/runs/drive-run.js';
 import { DRIVE_RECORD_SUFFIX, reticleDirPaths } from '@/memory/project/dir/reticle-dir.js';
 import { sessionRoot } from '@/memory/project/session-root.js';
+import { RESULT_FIELD, exploreResult, resultField } from './reticle-result.js';
 import { runTool } from './invoke-tool.js';
 import { driveVerdict, type RemoteDriveOutcome } from '@/features/harness/platform/remote-drive.js';
 import {
+  harnessLockRefusal,
+  firstLine,
   exploreApp,
   harnessAvailable,
   withLinkedCredential,
   MSG_NO_HARNESS_KEY,
 } from './harness-explore.js';
 import { EXPLORE_NEEDS } from '@/features/harness/drivers.js';
-import { checkTally, describeDrive, replayedFlows } from '@/features/harness/drive-report.js';
+import {
+  checkTally,
+  describeDrive,
+  replayedFlows,
+  runProved,
+} from '@/features/harness/drive-report.js';
 import { StopReason, type HarnessResult } from '@/features/harness/harness.js';
 import type { ExploreResult } from './harness-explore.js';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   'object' === typeof v && null !== v && !Array.isArray(v);
 
-/** How long a call waits on a drive before answering `running`: inside a 60s client timeout. */
-const WAIT_DEFAULT_S = 45;
 export const WAIT_MAX_S = 240;
 
 export const EXPLORE_TOOLS: ToolDef[] = [
@@ -87,8 +96,9 @@ export const EXPLORE_TOOLS: ToolDef[] = [
       driveId: z.string().optional(),
       // Bare on purpose: the description and every `running` answer say how to poll, and this
       // schema is re-sent on every turn of every session.
-      wait: z.number().min(0).max(WAIT_MAX_S).optional().describe('Seconds; default 45.'),
+      wait: z.number().min(0).max(WAIT_MAX_S).optional().describe('Seconds; default 50.'),
       runId: z.string().optional(),
+      planId: z.string().optional().describe('Run a plan saved on the dashboard, as it stands.'),
       stop: z.boolean().optional(),
       say: z.string().optional(),
     },
@@ -103,6 +113,10 @@ export const EXPLORE_TOOLS: ToolDef[] = [
       lastLine: z.string().optional(),
       /** The call that reads this drive again. */
       next: z.object({ action: z.string(), runId: z.string() }).optional(),
+      /** Seconds since the drive started, while it runs. */
+      elapsedS: z.number().optional(),
+      /** While it runs: poll again with the same call; stopping never stops the drive. */
+      instruction: z.string().optional(),
       stopReason: z.string().optional(),
       /** Which driver actually drove, so a comparison can never misattribute its own result. */
       driver: z.string().optional(),
@@ -123,8 +137,17 @@ export const EXPLORE_TOOLS: ToolDef[] = [
       checks: z.object({ held: z.number(), failed: z.number(), undecided: z.number() }).optional(),
       /** The runs this drive syncs as (`harness-<uuid>`): what the platform links its check to. */
       runIds: z.array(z.string()).optional(),
+      /** The run's page on the dashboard, when the project is linked. Give it to the user. */
+      runUrl: z.string().optional(),
+      /** The saved plan this run drove: the dashboard keeps it, edits it and runs it again. */
+      planId: z.string().optional(),
+      planUrl: z.string().optional(),
+      /** The credits the platform says this run spent. */
+      creditsSpent: z.number().optional(),
       /** One verdict per requested goal, checked by the harness itself. Only `yes` is proved. */
-      goals: z.array(z.object({ text: z.string(), verified: z.string() })).optional(),
+      goals: z
+        .array(z.object({ text: z.string(), verified: z.string(), reason: z.string().optional() }))
+        .optional(),
       /**
        * What the drive set out to do, read from `.reticle` BEFORE it started — every recorded
        * journey with the consequence that must still hold, and the declared intent nobody has
@@ -138,6 +161,11 @@ export const EXPLORE_TOOLS: ToolDef[] = [
        * and a driver that can is the one witness with a reason to round "unknown" up to "worked".
        */
       summary: z.string().optional(),
+      /**
+       * The driver's own account, alone. The platform's driver says here why a drive checked nothing
+       * at its end, which a caller that only shows the verdict otherwise cannot tell anybody.
+       */
+      driverAccount: z.string().optional(),
       /** Present when the drive broke: a model that would not answer, a wedged browser. */
       error: z.string().optional(),
       /** What the drive cost, cache hits included, so an expensive run is visible rather than felt. */
@@ -151,8 +179,21 @@ export const EXPLORE_TOOLS: ToolDef[] = [
         .optional(),
       /** Said out loud when a drive recorded nothing, because that is not a verified app. */
       note: z.string().optional(),
-      /** Each journey of a platform plan and how it ended. Only `passed` is proved. */
-      journeys: z.array(z.object({ title: z.string(), status: z.string() })).optional(),
+      /**
+       * Each journey of a platform plan and how it ended. Only `passed` is proved. `by`: its saved
+       * flows replayed (no model) or the model drove it; `tokens`: what the model spent on it.
+       */
+      [RESULT_FIELD]: z.string().optional(),
+      journeys: z
+        .array(
+          z.object({
+            title: z.string(),
+            status: z.string(),
+            by: z.string().optional(),
+            tokens: z.number().optional(),
+          }),
+        )
+        .optional(),
     },
     handler: (deps: ToolDeps, args: Record<string, unknown>, call?: ToolCall) =>
       answerExplore(deps, args, call, exploreDrive),
@@ -192,7 +233,8 @@ export async function answerExplore(
 ): Promise<unknown> {
   const wait = args['wait'];
   const waitMs =
-    MS_PER_S * Math.min(WAIT_MAX_S, Math.max(0, 'number' === typeof wait ? wait : WAIT_DEFAULT_S));
+    MS_PER_S *
+    Math.min(WAIT_MAX_S, Math.max(0, 'number' === typeof wait ? wait : POLL_WAIT_DEFAULT_S));
   const sessionId = str(args['sessionId']);
   const asked = str(args['runId']);
   if (asked !== undefined) {
@@ -210,10 +252,26 @@ export async function answerExplore(
   // signed in and linked does not also have to export a key by hand.
   const driveId = args['driveId'];
   const env = {
-    ...(await withLinkedCredential(deps, process.env)),
+    // The driven tab's project: the plan it saves and the runs it syncs land in one place.
+    ...(await withLinkedCredential(deps, process.env, { sessionId })),
     // Billed to the one free drive the platform granted, never to another.
     ...('string' === typeof driveId ? { [ReticleEnv.DRIVE_ID]: driveId } : {}),
   };
+  // The coverage gate first: it is local, and the one thing to fix before anything else matters.
+  // Not for a saved plan that only replays flows (no model turn to guard), and a plan it refuses
+  // is told so, so the plan's history records the attempt.
+  const planId = str(args['planId']);
+  const platform = serverOptionsFromEnv(env);
+  const replayOnly =
+    planId !== undefined &&
+    platform !== undefined &&
+    (await savedPlanDrivesNothing(platform, planId));
+  const locked = replayOnly ? undefined : await harnessLockRefusal(deps, sessionId, env);
+  if (locked !== undefined) {
+    if (planId !== undefined && platform !== undefined)
+      await reportPlanBlocked(platform, planId, firstLine(locked));
+    throw new Error(locked);
+  }
   if (!harnessAvailable(env)) throw new Error(MSG_NO_HARNESS_KEY);
   const harness = randomUUID();
   const runId = harnessRunId(harness);
@@ -250,14 +308,18 @@ async function answerDrive(
   );
   const record = driveRecord(runId) ?? (await readDriveFile(deps, sessionId, runId));
   if (record === undefined) return fromPlatform(deps, runId);
-  if (DriveStatus.RUNNING === record.status)
+  if (DriveStatus.RUNNING === record.status) {
+    const elapsedS = Math.max(0, Math.round((deps.now() - record.startedAt) / MS_PER_S));
     return {
       status: record.status,
       runId,
       steps: record.steps,
       lastLine: record.lastLine,
+      elapsedS,
       next: { action: 'explore', runId },
+      instruction: stillRunning(runId, record.steps, elapsedS),
     };
+  }
   if (record.result !== undefined) return { status: record.status, runId, ...record.result };
   if (refuseBroken && record.error !== undefined) throw new Error(record.error);
   return { status: record.status, runId, steps: record.steps, error: record.error ?? 'no result' };
@@ -322,10 +384,18 @@ function statusOf(stopReason: StopReason): DriveStatus {
 /** The shipped drive: `exploreApp`, steered by the registry, reported as the tool's answer. */
 const exploreDrive: ExploreDrive = async (deps, env, args, harness, control) => {
   const persona = args['persona'];
+  // Only a run a person started may carry the acknowledgement; an agent's drive keeps the guard.
+  const confirmDangerous =
+    true === args['confirmDangerous'] &&
+    DriveOrigin.AGENT !==
+      (Object.values(DriveOrigin).find((o) => o === args['origin']) ?? DriveOrigin.AGENT);
   const maxSteps = args['maxSteps'];
   const sessionId = args['sessionId'];
   const expect = args['expect'];
+  const planId = args['planId'];
   const explored = await exploreApp(deps, env, {
+    ...('string' === typeof planId ? { planId } : {}),
+    ...(confirmDangerous ? { confirmDangerous } : {}),
     ...('string' === typeof persona ? { focus: persona } : {}),
     ...('number' === typeof maxSteps ? { maxSteps } : {}),
     ...('string' === typeof sessionId ? { sessionId } : {}),
@@ -334,11 +404,26 @@ const exploreDrive: ExploreDrive = async (deps, env, args, harness, control) => 
     stopped: control.stopped,
     inbox: control.takeSaid,
   });
-  return { status: statusOf(explored.drive.stopReason), result: exploreReport(explored) };
+  const result = exploreReport(explored);
+  return {
+    status: statusOf(explored.drive.stopReason),
+    result: {
+      ...result,
+      ...resultField(() =>
+        exploreResult(sessionRoot(deps, 'string' === typeof sessionId ? sessionId : undefined), {
+          checks: checkTally(explored.drive.toolCalls),
+          goals: explored.goals,
+          ...(explored.drive.goalMet === undefined ? {} : { goalMet: explored.drive.goalMet }),
+          ...(explored.journeys === undefined ? {} : { journeys: explored.journeys }),
+          ...(explored.runIds === undefined ? {} : { runIds: explored.runIds }),
+        }),
+      ),
+    },
+  };
 };
 
 /** The tool's answer for a finished drive. */
-function exploreReport(explored: ExploreResult): Record<string, unknown> {
+export function exploreReport(explored: ExploreResult): Record<string, unknown> {
   const {
     drive,
     savedFlows,
@@ -349,8 +434,13 @@ function exploreReport(explored: ExploreResult): Record<string, unknown> {
     goals,
     planLines,
     runIds,
+    runUrl,
     journeys,
+    planId,
+    planUrl,
+    disparity,
   } = explored;
+  const checks = checkTally(drive.toolCalls);
   return {
     stopReason: drive.stopReason,
     driver: driverName,
@@ -358,23 +448,53 @@ function exploreReport(explored: ExploreResult): Record<string, unknown> {
     savedFlows: [...savedFlows],
     rewroteFlows: [...rewroteFlows],
     unverifiedFlows: [...unverifiedFlows],
-    proved: drive.proved,
-    checks: checkTally(drive.toolCalls),
+    // The headline's own word, so the answer never says NOT PROVED beside `proved: true`.
+    proved: runProved(checks, drive.goalMet, journeys),
+    checks,
     ...(drive.goalMet === undefined ? {} : { goalMet: drive.goalMet }),
     ...(runIds === undefined ? {} : { runIds: [...runIds] }),
+    // Where the user sees this run, and what it cost: the two things an agent is asked after a run.
+    ...(runUrl === undefined ? {} : { runUrl }),
+    ...(planId === undefined ? {} : { planId }),
+    ...(planUrl === undefined ? {} : { planUrl }),
+    ...(drive.creditsSpent === undefined ? {} : { creditsSpent: drive.creditsSpent }),
     ...(journeys === undefined
       ? {}
-      : { journeys: journeys.map((j) => ({ title: j.title, status: j.status })) }),
+      : {
+          journeys: journeys.map((j) => ({
+            title: j.title,
+            status: j.status,
+            ...(j.by === undefined ? {} : { by: j.by }),
+            ...(j.tokens === undefined ? {} : { tokens: j.tokens }),
+          })),
+        }),
     goals: [...goals],
-    plan: { summary: plan.summary, steps: [...plan.steps] },
-    // Derived, not narrated. The driver's own `summary` is appended only when it said
-    // something — it is the one part of this a model authored, so it goes last and is labelled.
+    // Each goal the agent also judged, compared: agent proved and Harness could not find is a
+    // discoverability finding, filed on the platform as its own kind.
+    ...(disparity === undefined ? {} : { disparity: [...disparity] }),
+    // The local plan only when nothing else planned the drive. Beside a platform plan's journeys it
+    // was a second, unrelated plan — fifteen replays of other people's flows — in the same answer.
+    ...(journeys === undefined ? { plan: { summary: plan.summary, steps: [...plan.steps] } } : {}),
+    // Derived, not narrated. The driver's own account stays out of it, in `driverAccount`: it
+    // named flows it never saved ("saved 1 flow(s)" beside "its recording was not saved"), and a
+    // summary must never contradict itself.
     summary: [
       ...(planLines ?? []),
-      describeDrive(drive.toolCalls, [...savedFlows, ...rewroteFlows], unverifiedFlows),
+      describeDrive(
+        drive.toolCalls,
+        [...savedFlows, ...rewroteFlows],
+        unverifiedFlows,
+        drive.goalMet,
+        journeys,
+      ),
       ...[unprovedGoals(goals)].filter((line): line is string => line !== undefined),
-      ...(0 === drive.summary.length ? [] : [`The driver's own account: ${drive.summary}`]),
     ].join('\n'),
+    // Not beside a platform plan: its lanes' accounts count saves the platform asked for ("saved 3
+    // flow(s)") where `savedFlows` lists what is on disk, and an answer has one count. Each journey's
+    // ending is in `journeys`, and the end state in `goals`.
+    ...(0 === drive.summary.length || journeys !== undefined
+      ? {}
+      : { driverAccount: drive.summary }),
     ...(drive.error === undefined ? {} : { error: drive.error }),
     usage: drive.usage,
     // The note only fires when the drive left NOTHING behind. A rewritten flow is a flow: it
@@ -385,7 +505,9 @@ function exploreReport(explored: ExploreResult): Record<string, unknown> {
      * plenty. Sixteen recorded journeys re-proved for zero model tokens is the cheap half of
      * the plan doing its job, and telling its author to "raise maxSteps" reads as a failure.
      */
-    ...(0 === savedFlows.length &&
+    // A persona drive's advice: a plan run's journeys already say how each went.
+    ...(journeys === undefined &&
+    0 === savedFlows.length &&
     0 === rewroteFlows.length &&
     0 === replayedFlows(drive.toolCalls).length
       ? { note: `${NOTHING_RECORDED[drive.stopReason]}${failureDetail(drive)}` }
@@ -468,15 +590,20 @@ export async function driveForChat(
   deps: ToolDeps,
   goal: string,
   sessionId?: string,
+  planId?: string,
+  /** The person who started it acknowledged the saved flows' destructive steps. */
+  confirmDangerous?: boolean,
 ): Promise<RemoteDriveOutcome> {
   const explore = EXPLORE_TOOLS.find((tool) => ReticleTool.VERIFY_EXPLORE === tool.name);
   if (explore === undefined) throw new Error('this build has no Harness drive');
   const out = await driveToEnd(
     asRecord(
       await runTool(explore, deps, {
-        persona: goal,
+        // A saved plan carries its own journeys: the request's words are only its label.
+        ...(planId === undefined ? { persona: goal } : { planId }),
         origin: DriveOrigin.CHAT,
         ...(sessionId === undefined ? {} : { sessionId }),
+        ...(true === confirmDangerous ? { confirmDangerous } : {}),
       }),
     ),
   );
