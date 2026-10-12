@@ -1213,6 +1213,7 @@ async function driveScaffold(scaffold, index) {
     let report = '';
     let initStderr = '';
     let initExit = 0;
+    let initKilled = '';
     try {
       const output = await runCaptured(
         'node',
@@ -1229,6 +1230,9 @@ async function driveScaffold(scaffold, index) {
       initStderr = output.stderr;
     } catch (err) {
       initExit = err.status ?? 1;
+      // A timeout kills init and has no exit status. Saying "exit 1" sent the reader looking for an
+      // error init never printed; it had hung (next-app-router, Windows, upstream run 38129228877).
+      if (true === err.killed) initKilled = ` (killed by ${String(err.signal)}: no exit within the timeout)`;
       report = err.stdout ?? '';
       initStderr = err.stderr ?? '';
     }
@@ -1244,7 +1248,7 @@ async function driveScaffold(scaffold, index) {
     );
 
     handedOverPorts = portsMentionedIn(report);
-    chk('init exits 0', initExit === 0, `exit ${String(initExit)}`);
+    chk('init exits 0', initExit === 0, `exit ${String(initExit)}${initKilled}`);
     // Evidence for the OTHER failure path, which had none (#818).
     //
     // `dumpEvidence` ran only when the gate's own session check failed. The intermittent Windows
