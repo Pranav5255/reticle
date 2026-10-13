@@ -6,7 +6,7 @@
       "issue": "#1514",
       "owner": "Pranav5255",
       "added": "2026-10-11",
-      "expires": "2026-11-10",
+      "expires": "2020-01-01",
       "note": "bench runs after merge, nightly and on dispatch, not in the queue, so a token regression first shows on main. Joins the queue after three consecutive green nightlies."
     },
     {
