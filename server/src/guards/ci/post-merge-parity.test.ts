@@ -1,7 +1,7 @@
 /**
  * Whatever runs after merge must be able to run before it.
  *
- * Incident (#PENDING): most pushes to main went red on `bench` and on Windows install cells that
+ * Incident (#1514): most pushes to main went red on `bench` and on Windows install cells that
  * the merge queue never ran, while `gate` counted them as skipped. Two shapes hide that gap, and
  * this guard reads both:
  *

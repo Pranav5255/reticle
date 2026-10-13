@@ -62,6 +62,7 @@ jobs:
   # broken typecheck fails the expensive job anyway, a few minutes later, while `verify` fails it in
   # parallel regardless. `gate` still requires the full `verify`, so nothing merges without it.
   format-check:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -99,6 +100,7 @@ jobs:
       # can disagree with itself; `changelog-policy` is in `gate`'s needs, so nothing is lost.
 
   verify:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     # The only job that was missing a cap, and the only one that has ever hung. On the v2.5.0 merge
     # every test PASSED in 2m17s and then one vitest process never exited; the job sat there for 36
@@ -155,6 +157,7 @@ jobs:
   # The unit suite, in parallel with verify's static checks rather than after them. It was ~4.5 of
   # verify's ~8 minutes, and nothing in it depends on lint or typecheck having run first.
   unit-tests:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -272,6 +275,7 @@ jobs:
   # `pnpm typecheck` is deliberately NOT here. Types are platform-independent; `verify` already
   # answers it and answered it every one of those 10 times.
   macos:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -407,6 +411,7 @@ jobs:
   # none of which an advisory scan needs, and a vulnerable dependency is a different answer from a
   # broken build — worth reading off a separate line.
   rust-audit:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -561,6 +566,7 @@ jobs:
   # flag comes back true and every tier runs. The failure mode of guessing wrong here is a skipped
   # gate on a PR that needed it, so the safe direction is to run too much.
   changes:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -775,6 +781,7 @@ jobs:
   # Seconds, no browser, no servers: it is a schema check plus the validator's own self-check, which
   # runs first because a validator that has never refused anything is not a validator.
   matrix-records:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1535,6 +1542,46 @@ jobs:
       - name: Published package size budgets
         run: node scripts/check-pack-size.mjs
 
+  # The nightly on reticlehq/reticle, or a manual dispatch on main. A red nightly used to sit
+  # unnoticed. A dispatch from a feature ref never reaches here, so trying a branch does not open
+  # the issue. Not in `gate`: it cannot fail a PR.
+  nightly-watch:
+    if: >-
+      always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.repository == 'reticlehq/reticle'))
+    runs-on: ubuntu-latest
+    needs: [gate]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Open or update the nightly-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE: ${{ needs.gate.result }}
+        run: |
+          case "$GATE" in
+            success|skipped) echo "gate $GATE"; extra="" ;;
+            *) extra="gate=$GATE" ;;
+          esac
+          # Only COMPLETED jobs. This job is still running when it asks, so its own conclusion is
+          # empty, and counting it made every nightly look red.
+          failed_jobs=$(gh run view "${{ github.run_id }}" --json jobs --jq '[.jobs[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .name != "nightly-watch") | .name] | join(", ")' || true)
+          [ -z "$extra" ] && [ -z "$failed_jobs" ] && { echo "nightly green"; exit 0; }
+          title='Nightly CI is red'
+          existing=$(gh issue list --search "$title in:title" --state open --json number --jq '.[0].number')
+          body="${{ github.event_name }} run ${{ github.run_id }} on ${{ github.sha }} reported a failure.
+          gate: $GATE
+          failed jobs: ${failed_jobs:-none listed}
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
   gate:
     runs-on: ubuntu-latest
     # Every job that can fail a PR is listed HERE. A job missing from this list runs, reports, and is
@@ -1576,7 +1623,7 @@ jobs:
         break-matrix,
         package-quality,
       ]
-    if: always()
+    if: always() && (github.event_name != 'schedule' || github.repository == 'reticlehq/reticle')
     timeout-minutes: 5
     steps:
       - name: Every gate either passed or was not needed
