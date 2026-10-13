@@ -120,11 +120,11 @@ pnpm verify    # format:check, lint, typecheck, unit (~2 min) — ALWAYS
 
 Each of these exists because the ones above it are structurally blind to something. The unit gate cannot see cross-package drift; the e2e battery boots no desktop runtime; every app in `apps/` is already instrumented, so nothing but the install gate can see a broken `init`. That is why a green `pnpm test:unit` is not the same as "this works".
 
+Other useful scripts: `pnpm format` / `pnpm format:check` (Prettier), `pnpm knip` (unused files, exports, dependencies), and `pnpm bench` — the benchmark harness, which is **research, not a gate** (see [`bench/README.md`](bench/README.md)).
+
 ## What must be green to merge
 
 `gate` plus `dco`. Bench and the full Windows install matrix still run only after merge, quarantined in [`.github/flaky.json`](.github/flaky.json); each one joins the merge queue, and leaves that file, after three consecutive green nightlies on `main`.
-
-Other useful scripts: `pnpm format` / `pnpm format:check` (Prettier), `pnpm knip` (unused files, exports, dependencies), and `pnpm bench` — the benchmark harness, which is **research, not a gate** (see [`bench/README.md`](bench/README.md)).
 
 ---
 

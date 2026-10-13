@@ -77,19 +77,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # No build: prettier reads the tree, which is the entire reason this can run ahead of `verify`.
       - run: pnpm format:check
-      # An expired entry fails the nightly, a manual run, or a PR that edits flaky.json; on any
-      # other PR it is a warning, so a date alone never turns an unrelated PR red.
-      - name: Flake quarantine is current
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-        run: |
-          node scripts/ci/flaky-expiry.mjs --self-test
-          touched=""
-          if [ -n "$BASE" ] && git diff --name-only "$BASE" HEAD | grep -qx '.github/flaky.json'; then
-            touched="--touched"
-          fi
-          node scripts/ci/flaky-expiry.mjs --event "$EVENT" $touched
       # The changelog rule lives in the `changelog-policy` job, NOT here.
       #
       # It was in both, with two different exemption lists: this copy exempted `release/` and that
@@ -98,6 +85,36 @@ jobs:
       # this repository actually cuts releases on, so the release PR for v3.2.0 was refused by a
       # guard whose own stated intent exempted it. One rule enforced in two places is one rule that
       # can disagree with itself; `changelog-policy` is in `gate`'s needs, so nothing is lost.
+
+  # Whether .github/flaky.json is current. Its own job, and nothing waits on it: as a step in
+  # format-check, an expired entry failed every job that needs format-check, so the nightly would
+  # have stopped running bench and the Windows install cells, the jobs whose three green nightlies
+  # the expiry exists to force. `gate` still requires it. An expired entry is an error on the
+  # nightly, a manual run on main, or a PR that edits flaky.json; anywhere else it is a warning,
+  # so a date alone never turns an unrelated change red.
+  flaky-quarantine:
+    if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Flake quarantine is current
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          node scripts/ci/flaky-expiry.mjs --self-test
+          touched=""
+          if [ -n "$BASE" ] && git diff --name-only "$BASE" HEAD | grep -qx '.github/flaky.json'; then
+            touched="--touched"
+          fi
+          node scripts/ci/flaky-expiry.mjs --event "$EVENT" --ref "$REF" $touched
 
   verify:
     if: github.event_name != 'schedule' || github.repository == 'reticlehq/reticle'
@@ -1570,8 +1587,12 @@ jobs:
           # empty, and counting it made every nightly look red.
           failed_jobs=$(gh run view "${{ github.run_id }}" --json jobs --jq '[.jobs[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped" and .name != "nightly-watch") | .name] | join(", ")' || true)
           [ -z "$extra" ] && [ -z "$failed_jobs" ] && { echo "nightly green"; exit 0; }
+          # A dedicated label plus an exact title. A title search matched any issue containing
+          # those words, so the comment could land on an unrelated issue.
           title='Nightly CI is red'
-          existing=$(gh issue list --search "$title in:title" --state open --json number --jq '.[0].number')
+          label='nightly-red'
+          gh label create "$label" --color B60205 --description 'Opened by nightly-watch' --force
+          existing=$(gh issue list --label "$label" --state open --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           body="${{ github.event_name }} run ${{ github.run_id }} on ${{ github.sha }} reported a failure.
           gate: $GATE
           failed jobs: ${failed_jobs:-none listed}
@@ -1579,7 +1600,7 @@ jobs:
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else
-            gh issue create --title "$title" --body "$body"
+            gh issue create --title "$title" --label "$label" --body "$body"
           fi
 
   gate:
@@ -1602,6 +1623,7 @@ jobs:
         changes,
         changelog-policy,
         format-check,
+        flaky-quarantine,
         verify,
         unit-tests,
         smoke,

@@ -1,23 +1,33 @@
 /**
  * Flake suppressions expire, and every one names an issue.
  *
- * Incident: a skip left in place after the flake died kept hiding a real red. Thirty days
- * is the default window; extend the date in `.github/flaky.json` only with a reason.
+ * Incident (#1514): bench and the Windows install cells ran only after merge, so `gate` counted
+ * them as skipped and main went red on code the queue had passed, with nothing saying which gaps
+ * were tolerated or until when. Each tolerated gap is now an entry with an issue and an expiry.
+ * Thirty days is the default window; extend the date in `.github/flaky.json` only with a reason.
  *
- * An EXPIRED entry fails only where somebody can act on it: the nightly, a manual run, or a
- * pull request that edits `.github/flaky.json`. On every other pull request it is a warning,
- * so a calendar date never turns an unrelated contributor's PR red. A MALFORMED entry (no
- * issue, no expiry) always fails, because only an edit to the file can produce one.
+ * An EXPIRED entry fails only where somebody can act on it: the nightly, a manual run on main, or
+ * a pull request that edits `.github/flaky.json`. Anywhere else (another pull request, the merge
+ * queue, a push, a manual run on a feature branch) it is a warning, so a calendar date never turns
+ * an unrelated change red. A MALFORMED entry (no issue, no expiry) always fails, because only an
+ * edit to the file can produce one.
  */
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FILE = join(HERE, '..', '..', '.github', 'flaky.json');
 
-/** Events where an expired entry is an error rather than a warning. */
-const STRICT_EVENTS = new Set(['schedule', 'workflow_dispatch']);
+const MAIN_REF = 'refs/heads/main';
+
+/** Whether an expired entry is an error here rather than a warning. */
+function isStrict({ event, ref, touched }) {
+  if (touched) return true;
+  if ('schedule' === event) return true;
+  return 'workflow_dispatch' === event && MAIN_REF === ref;
+}
 
 function entriesOf(text) {
   const parsed = JSON.parse(text);
@@ -59,12 +69,12 @@ export function auditEntries(text, today) {
  *
  * @param {string} text
  * @param {string} today YYYY-MM-DD
- * @param {{ event: string, touched: boolean }} context
+ * @param {{ event: string, ref?: string, touched: boolean }} context
  * @returns {{ fail: boolean, errors: string[], warnings: string[] }}
  */
 export function decide(text, today, context) {
   const { malformed, expired } = auditEntries(text, today);
-  const strict = STRICT_EVENTS.has(context.event) || context.touched;
+  const strict = isStrict(context);
   const errors = [...malformed, ...(strict ? expired : [])];
   const warnings = strict ? [] : expired;
   return { fail: 0 < errors.length, errors, warnings };
@@ -100,34 +110,29 @@ function selfTest() {
   const today = '2026-10-11';
   const expired = JSON.stringify({ entries: [{ id: 'old', expires: '2020-01-01', issue: '1' }] });
   const noIssue = JSON.stringify({ entries: [{ id: 'no-issue', expires: '2099-01-01' }] });
+  const noExpiry = JSON.stringify({ entries: [{ id: 'no-expiry', issue: '5' }] });
   const fresh = JSON.stringify({ entries: [{ id: 'open', expires: '2099-01-01', issue: '2' }] });
+  const on = (event, extra = {}) => ({ event, ref: MAIN_REF, touched: false, ...extra });
   const cases = [
-    [
-      'expired, unrelated PR: warn only',
-      decide(expired, today, { event: 'pull_request', touched: false }),
-      false,
-    ],
+    ['expired, unrelated PR: warn only', decide(expired, today, on('pull_request')), false],
     [
       'expired, PR edits the file: fail',
-      decide(expired, today, { event: 'pull_request', touched: true }),
+      decide(expired, today, on('pull_request', { touched: true })),
       true,
     ],
-    ['expired, nightly: fail', decide(expired, today, { event: 'schedule', touched: false }), true],
+    ['expired, merge queue: warn only', decide(expired, today, on('merge_group')), false],
+    ['expired, push to main: warn only', decide(expired, today, on('push')), false],
+    ['expired, nightly: fail', decide(expired, today, on('schedule')), true],
+    ['expired, manual run on main: fail', decide(expired, today, on('workflow_dispatch')), true],
     [
-      'expired, manual run: fail',
-      decide(expired, today, { event: 'workflow_dispatch', touched: false }),
-      true,
-    ],
-    [
-      'missing issue, unrelated PR: fail',
-      decide(noIssue, today, { event: 'pull_request', touched: false }),
-      true,
-    ],
-    [
-      'current entry, nightly: pass',
-      decide(fresh, today, { event: 'schedule', touched: false }),
+      'expired, manual run on a feature branch: warn only',
+      decide(expired, today, on('workflow_dispatch', { ref: 'refs/heads/feature' })),
       false,
     ],
+    ['missing issue, unrelated PR: fail', decide(noIssue, today, on('pull_request')), true],
+    ['missing expires, unrelated PR: fail', decide(noExpiry, today, on('pull_request')), true],
+    ['missing expires, merge queue: fail', decide(noExpiry, today, on('merge_group')), true],
+    ['current entry, nightly: pass', decide(fresh, today, on('schedule')), false],
   ];
   for (const [name, result, shouldFail] of cases) {
     if (result.fail !== shouldFail) {
@@ -135,7 +140,7 @@ function selfTest() {
       return 1;
     }
   }
-  if (0 === decide(expired, today, { event: 'pull_request', touched: false }).warnings.length) {
+  if (0 === decide(expired, today, on('pull_request')).warnings.length) {
     console.error('self-test: an expired entry on an unrelated PR printed no warning');
     return 1;
   }
@@ -143,17 +148,46 @@ function selfTest() {
     entries: [
       { id: 'e2e', job_or_test: 'e2e', expires: '2099-01-01', issue: '3' },
       { id: 'old', job_or_test: 'integration', expires: '2020-01-01', issue: '4' },
+      { id: 'bench', job_or_test: 'bench', expires: '2099-01-01' },
     ],
   });
   if (!isQuarantined(body, 'e2e', today) || isQuarantined(body, 'integration', today)) {
     console.error('self-test: quarantine allow/deny was wrong');
     return 1;
   }
-  console.log(`self-test: ${String(cases.length)} expiry cases and the quarantine lookup behave`);
+  if (isQuarantined(body, 'bench', today)) {
+    console.error('self-test: an entry with no issue quarantined its job');
+    return 1;
+  }
+  // The flags as CI passes them, through the same entry point, against a real file.
+  const dir = mkdtempSync(join(tmpdir(), 'flaky-expiry-'));
+  const file = join(dir, 'flaky.json');
+  writeFileSync(file, expired);
+  const run = (...flags) => main(['--file', file, '--today', today, ...flags], { quiet: true });
+  const cli = [
+    ['--touched on a PR fails', run('--event', 'pull_request', '--touched'), 1],
+    ['the same PR without --touched passes', run('--event', 'pull_request'), 0],
+    [
+      '--ref off main on a manual run passes',
+      run('--event', 'workflow_dispatch', '--ref', 'refs/heads/feature'),
+      0,
+    ],
+    ['--ref main on a manual run fails', run('--event', 'workflow_dispatch', '--ref', MAIN_REF), 1],
+  ];
+  rmSync(dir, { recursive: true, force: true });
+  for (const [name, code, want] of cli) {
+    if (code !== want) {
+      console.error(`self-test: ${name}: exit ${String(code)}`);
+      return 1;
+    }
+  }
+  console.log(
+    `self-test: ${String(cases.length)} expiry cases, ${String(cli.length)} command lines and the quarantine lookup behave`,
+  );
   return 0;
 }
 
-function main(argv) {
+function main(argv, { quiet = false } = {}) {
   if (argv.includes('--self-test')) return selfTest();
 
   const today = argValue(argv, '--today') ?? todayUtc();
@@ -175,8 +209,10 @@ function main(argv) {
 
   const result = decide(text, today, {
     event: argValue(argv, '--event') ?? 'pull_request',
+    ref: argValue(argv, '--ref'),
     touched: argv.includes('--touched'),
   });
+  if (quiet) return result.fail ? 1 : 0;
   for (const line of result.warnings) console.log(`::warning::flaky.json: ${line}`);
   if (result.fail) {
     console.error('flaky.json:');
