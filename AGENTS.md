@@ -112,3 +112,18 @@ The batteries use bridge port `14400`, so a daemon of your own on `4400` can kee
 4. For a user-facing change, add one file to [`.changes/`](.changes/README.md). Do not edit `CHANGELOG.md`; only a `release/` branch does that.
 5. Link the issue in the PR (`Closes #123`). Before you start, claim the issue with a comment, and look for an open PR that already fixes it.
 6. Prove that your test fails without your change. Revert the fix, run the test, and see it fail. Say in the PR that you did this.
+
+## Fixing an issue
+
+These rules apply to this fork. Follow them when you fix a GitHub issue, and before you open a PR for it.
+
+1. Reproduce the issue for real before you change code. Use the real app, browser or CLI that the issue names. If the environment blocks the reproduction, change the environment until it works. Do not skip this step, even if a deadline slips.
+2. Find the root cause, not only the symptom. Trace the exact failure text in the issue (for example a `because` or `reason`) to the code that writes it. Name that code path in the PR. A reproduction that turns green does not prove the cause.
+3. Prefer a structural fix to a timing rule. Do not add a constant that ends a wait early or decides a verdict on a timer, unless no other fix is possible. If you must, measure it with the benchmark (rule 14). A late retry that gets a false `no` is a defect, not a limit to write down.
+4. Find every caller of the code you change. A shared function such as a lease's `isLoading` or a session lookup has callers outside your path. State in the PR and the `.changes/` entry what changes for each of them.
+5. Catch only the error you mean. Do not treat every throw as the one condition that the issue is about. Check for that condition directly.
+6. Keep the original reason when you add a new one (rule 11). Put the new reason first and the old one after it.
+7. Test a browser fact in a real browser. If the fix depends on how Chromium, Playwright or a dev server behaves, add one real-Chromium or e2e test. A mock does not prove a browser fact.
+8. Make the revert-proof mean something. A test that passes on `main` proves nothing alone. At least one new test must fail on `main` for the reason that the issue reports.
+9. Review the fix before you open the PR. A second reviewer, who did not write the fix, tries to break it. Check the revert-proof, other callers, false verdicts, the gates in "Which gate to run", and the 1,000-line cap.
+10. Use the identity of the fork owner. Every commit is signed off by the fork owner only. Do not add a `Co-authored-by` line. Do not name an AI tool in a commit, PR, comment or branch name.
